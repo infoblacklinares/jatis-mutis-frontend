@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { ReactNode } from "react";
 import "./App.css";
 import { Sidebar } from "./components/Sidebar";
 import { Customers } from "./pages/Customers";
@@ -7,7 +8,7 @@ import { Inventory } from "./pages/Inventory";
 import { Orders } from "./pages/Orders";
 import { Products } from "./pages/Products";
 
-const views: Record<string, { title: string; eyebrow: string; component: JSX.Element }> = {
+const views: Record<string, { title: string; eyebrow: string; component: ReactNode }> = {
   dashboard: { title: "Dashboard", eyebrow: "Control interno", component: <Dashboard /> },
   products: { title: "Productos", eyebrow: "Catálogo Shopify", component: <Products /> },
   inventory: { title: "Inventario", eyebrow: "Control de existencias", component: <Inventory /> },
