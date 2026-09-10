@@ -1,10 +1,19 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import './index.css'
-import App from './App.tsx'
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { ClerkProvider } from "@clerk/react";
+import "./index.css";
+import App from "./App.tsx";
 
-createRoot(document.getElementById('root')!).render(
+const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+
+if (!publishableKey) {
+  throw new Error("Falta VITE_CLERK_PUBLISHABLE_KEY en el entorno.");
+}
+
+createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    <ClerkProvider publishableKey={publishableKey} afterSignOutUrl="/">
+      <App />
+    </ClerkProvider>
   </StrictMode>,
-)
+);
