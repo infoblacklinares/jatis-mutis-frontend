@@ -52,7 +52,7 @@ function ProtectedDashboard() {
             <p className="eyebrow">{view.eyebrow}</p>
             <h1>{view.title}</h1>
           </div>
-          <UserButton afterSignOutUrl="/" />
+          <UserButton />
         </header>
         {view.component}
       </main>
