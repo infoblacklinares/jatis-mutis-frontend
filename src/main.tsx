@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { ClerkProvider } from "@clerk/react";
+import { esES } from "@clerk/localizations";
 import "./index.css";
 import App from "./App.tsx";
 
@@ -12,7 +13,11 @@ if (!publishableKey) {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <ClerkProvider publishableKey={publishableKey} afterSignOutUrl="/">
+    <ClerkProvider
+      publishableKey={publishableKey}
+      afterSignOutUrl="/"
+      appearance={{ localization: esES }}
+    >
       <App />
     </ClerkProvider>
   </StrictMode>,
