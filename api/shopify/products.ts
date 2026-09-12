@@ -37,16 +37,16 @@ const query = `query Products($first: Int!, $after: String) { products(first: $f
 async function getShopifyAccessToken(shopDomain: string, clientId: string, clientSecret: string, idToken: string) {
   const response = await fetch(`https://${shopDomain}/admin/oauth/access_token`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:token-exchange", subject_token: idToken, subject_token_type: "urn:ietf:params:oauth:token-type:id_token", requested_token_type: "urn:shopify:params:oauth:token-type:online-access-token", client_id: clientId, client_secret: clientSecret }).toString() });
   const payload = await response.json() as TokenResponse;
-  if (!response.ok || !payload.access_token) throw new Error(payload.error_description || payload.error || `SHOPIFY_TOKEN_HTTP_${response.status}`);
+  if (!response.ok || !payload.access_token) throw new Error(`TOKEN_EXCHANGE_HTTP_${response.status}:${payload.error_description || payload.error || "sin detalle"}`);
   return payload.access_token;
 }
 
 async function shopifyGraphql(storeDomain: string, accessToken: string, variables: Record<string, unknown>) {
   const response = await fetch(`https://${storeDomain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, { method: "POST", headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": accessToken }, body: JSON.stringify({ query, variables }) });
   const payload = await response.json() as ShopifyResponse;
-  if (!response.ok) throw new Error(`SHOPIFY_HTTP_${response.status}`);
-  if (payload.errors?.length) throw new Error(payload.errors.map((error) => error.message).join("; "));
-  if (!payload.data?.products) throw new Error("SHOPIFY_PRODUCTS_EMPTY");
+  if (!response.ok) throw new Error(`GRAPHQL_HTTP_${response.status}`);
+  if (payload.errors?.length) throw new Error(`GRAPHQL_ERROR:${payload.errors.map((error) => error.message).join("; ")}`);
+  if (!payload.data?.products) throw new Error("GRAPHQL_PRODUCTS_EMPTY");
   return payload.data.products;
 }
 
