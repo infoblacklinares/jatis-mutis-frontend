@@ -5,9 +5,8 @@ const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-07";
 
 type ShopifyProduct = { id: string; title: string; handle: string; descriptionHtml: string; featuredImage: { url: string } | null; vendor: string; productType: string; tags: string[]; variants: { nodes: Array<{ id: string; sku: string | null; title: string; inventoryQuantity: number; price: string; compareAtPrice: string | null; weight: number; weightUnit: string; availableForSale: boolean }> } };
 type ShopifyProducts = { nodes: ShopifyProduct[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } };
-type ShopifyResponse = { data?: { products?: ShopifyProducts }; errors?: Array<{ message: string }> };
-type ScopesResponse = { data?: { currentAppInstallation?: { accessScopes?: Array<{ handle: string }> } }; errors?: Array<{ message: string }> };
-type TokenResponse = { access_token?: string; error?: string; error_description?: string };
+type ShopifyResponse = { data?: { products?: ShopifyProducts }; errors?: Array<{ message?: string; extensions?: unknown }> };
+type TokenResponse = { access_token?: string; error?: string; error_description?: string; scope?: string };
 type ShopifyIdTokenClaims = { iss?: string; dest?: string; aud?: string; exp?: number; nbf?: number };
 
 function json(res: VercelResponse, status: number, body: unknown) { return res.status(status).json(body); }
@@ -34,7 +33,6 @@ function verifyShopifyIdToken(token: string, clientId: string, clientSecret: str
 }
 
 const query = `query Products($first: Int!, $after: String) { products(first: $first, after: $after, sortKey: TITLE) { nodes { id title handle descriptionHtml featuredImage { url } vendor productType tags variants(first: 100) { nodes { id sku title inventoryQuantity price compareAtPrice weight weightUnit availableForSale } } } pageInfo { hasNextPage endCursor } } }`;
-const scopesQuery = `query GrantedScopes { currentAppInstallation { accessScopes { handle } } }`;
 
 async function getShopifyAccessToken(shopDomain: string, clientId: string, clientSecret: string, idToken: string) {
   const response = await fetch(`https://${shopDomain}/admin/oauth/access_token`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:token-exchange", subject_token: idToken, subject_token_type: "urn:ietf:params:oauth:token-type:id_token", requested_token_type: "urn:shopify:params:oauth:token-type:online-access-token", client_id: clientId, client_secret: clientSecret }).toString() });
@@ -43,11 +41,14 @@ async function getShopifyAccessToken(shopDomain: string, clientId: string, clien
   return payload.access_token;
 }
 
-async function shopifyRequest(storeDomain: string, accessToken: string, queryText: string, variables: Record<string, unknown> = {}) {
-  const response = await fetch(`https://${storeDomain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, { method: "POST", headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": accessToken }, body: JSON.stringify({ query: queryText, variables }) });
-  const payload = await response.json() as ShopifyResponse & ScopesResponse;
-  if (!response.ok) throw new Error(`GRAPHQL_HTTP_${response.status}`);
-  return payload;
+async function shopifyGraphql(storeDomain: string, accessToken: string, variables: Record<string, unknown>) {
+  const response = await fetch(`https://${storeDomain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, { method: "POST", headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": accessToken }, body: JSON.stringify({ query, variables }) });
+  const payload = await response.json() as ShopifyResponse;
+  const details = payload.errors?.map((error) => error.message || "Error GraphQL").join("; ") || "sin detalle";
+  if (!response.ok) throw new Error(`GRAPHQL_HTTP_${response.status}:${details}`);
+  if (payload.errors?.length) throw new Error(`GRAPHQL_ERROR:${details}`);
+  if (!payload.data?.products) throw new Error("GRAPHQL_PRODUCTS_EMPTY");
+  return payload.data.products;
 }
 
 function normalize(product: ShopifyProduct) {
@@ -67,23 +68,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!idToken) return json(res, 401, { error: "Falta la sesión de Shopify. Abre Jatis Mutis desde Shopify Admin.", "X-Shopify-Retry-Invalid-Session-Request": "1" });
     const storeDomain = verifyShopifyIdToken(idToken, clientId, clientSecret);
     const accessToken = await getShopifyAccessToken(storeDomain, clientId, clientSecret, idToken);
-
-    const scopePayload = await shopifyRequest(storeDomain, accessToken, scopesQuery);
-    const grantedScopes = scopePayload.data?.currentAppInstallation?.accessScopes?.map((scope) => scope.handle) || [];
-    if (scopePayload.errors?.length) throw new Error(`SCOPES_ERROR:${scopePayload.errors.map((error) => error.message).join("; ")}`);
-    const requiredScopes = ["read_products", "read_inventory"];
-    const missingScopes = requiredScopes.filter((scope) => !grantedScopes.includes(scope));
-    if (missingScopes.length) return json(res, 403, { error: "La instalación de Shopify no tiene los permisos requeridos.", detail: `Faltan scopes: ${missingScopes.join(", ")}`, grantedScopes });
-
     const nodes: ShopifyProduct[] = []; let after: string | null = null; let hasNextPage = true;
-    while (hasNextPage) {
-      const payload = await shopifyRequest(storeDomain, accessToken, query, { first: 100, after });
-      if (payload.errors?.length) throw new Error(`GRAPHQL_ERROR:${payload.errors.map((error) => error.message).join("; ")}`);
-      const products = payload.data?.products;
-      if (!products) throw new Error("GRAPHQL_PRODUCTS_EMPTY");
-      nodes.push(...products.nodes); hasNextPage = products.pageInfo.hasNextPage; after = products.pageInfo.endCursor;
-    }
-    return json(res, 200, { nodes: nodes.map(normalize), count: nodes.length, pageInfo: { hasNextPage: false, endCursor: null }, source: "shopify", grantedScopes });
+    while (hasNextPage) { const products = await shopifyGraphql(storeDomain, accessToken, { first: 100, after }); nodes.push(...products.nodes); hasNextPage = products.pageInfo.hasNextPage; after = products.pageInfo.endCursor; }
+    return json(res, 200, { nodes: nodes.map(normalize), count: nodes.length, pageInfo: { hasNextPage: false, endCursor: null }, source: "shopify" });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Error interno";
     if (message.startsWith("SHOPIFY_ID_TOKEN_")) return json(res, 401, { error: "Sesión de Shopify inválida o expirada.", detail: message, "X-Shopify-Retry-Invalid-Session-Request": "1" });
