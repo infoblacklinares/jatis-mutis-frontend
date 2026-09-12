@@ -85,7 +85,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === "DELETE") {
-      await clerk.users.updateUser(userId, { banned: true });
+      await clerk.users.banUser(userId);
       return json(res, 200, { success: true, userId, active: false });
     }
 
