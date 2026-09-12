@@ -24,7 +24,7 @@ export function Orders() {
     const nextProducts = products.map((product) => {
       const items = order.items?.filter((item) => item.productId === product.id) ?? [];
       if (!items.length) return product;
-      return { ...product, variants: product.variants.map((variant) => { const item = items.find((entry) => entry.sku === variant.sku || entry.productId === variant.productId); return item ? { ...variant, quantity: Math.max(0, variant.quantity - item.quantity) } : variant; }) };
+      return { ...product, variants: product.variants.map((variant) => { const item = items.find((entry) => entry.sku === variant.sku); return item ? { ...variant, quantity: Math.max(0, variant.quantity - item.quantity) } : variant; }) };
     });
     saveProducts(nextProducts); logActivity("Inventario reservado", `${order.id} · ${order.items.length} línea(s)`);
   };
