@@ -5,6 +5,8 @@ const PRODUCTS_PATH = API_URL ? "/api/products" : "/api/shopify/products";
 
 export const apiConfigured = true;
 
+type ApiErrorBody = { error?: string; detail?: string };
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set("Content-Type", "application/json");
@@ -13,7 +15,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers,
   });
-  if (!response.ok) throw new Error(`API ${response.status}: ${response.statusText}`);
+
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const body = await response.json() as ApiErrorBody;
+      detail = body.detail || body.error || "";
+    } catch {
+      // La respuesta no era JSON.
+    }
+    throw new Error(detail || `API ${response.status}: ${response.statusText}`);
+  }
+
   return response.json() as Promise<T>;
 }
 
