@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { readOrders, logActivity } from "../services/localStore";
-import type { Order } from "../types/order";
 
 type Dispatch = { id: string; customer: string; carrier: string; tracking: string; status: "Pendiente" | "Preparando" | "Enviado" | "Entregado" };
 const initial: Dispatch[] = [
