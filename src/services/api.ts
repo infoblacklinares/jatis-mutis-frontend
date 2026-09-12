@@ -3,12 +3,32 @@ import type { Product, ProductsResponse } from "../types/product";
 const API_URL = import.meta.env.VITE_API_URL?.replace(/\/$/, "") ?? "";
 const PRODUCTS_PATH = API_URL ? "/api/products" : "/api/shopify/products";
 
+declare global {
+  interface Window {
+    shopify?: {
+      idToken?: () => Promise<string>;
+    };
+  }
+}
+
 export const apiConfigured = true;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  headers.set("Content-Type", "application/json");
+
+  if (window.shopify?.idToken) {
+    try {
+      const idToken = await window.shopify.idToken();
+      if (idToken) headers.set("X-Shopify-ID-Token", idToken);
+    } catch {
+      // Outside Shopify Admin there is no ID token; the server will reject the live request.
+    }
+  }
+
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers,
   });
   if (!response.ok) throw new Error(`API ${response.status}: ${response.statusText}`);
   return response.json() as Promise<T>;
