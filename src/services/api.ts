@@ -7,6 +7,31 @@ export const apiConfigured = true;
 
 type ApiErrorBody = { error?: string; detail?: string };
 
+declare global {
+  interface Window {
+    shopify?: {
+      idToken?: () => Promise<string>;
+      scopes?: {
+        query: () => Promise<{ granted: string[]; optional?: string[]; required?: string[] }>;
+        request: (scopes: string[]) => Promise<unknown>;
+      };
+    };
+  }
+}
+
+async function ensureShopifyScopes() {
+  const scopesApi = window.shopify?.scopes;
+  if (!scopesApi) return;
+
+  const current = await scopesApi.query();
+  const requiredScopes = ["read_products", "read_inventory"];
+  const missing = requiredScopes.filter((scope) => !current.granted.includes(scope));
+
+  if (missing.length) {
+    await scopesApi.request(missing);
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set("Content-Type", "application/json");
@@ -50,6 +75,7 @@ export function normalizeProduct(product: Product): Product {
 }
 
 export async function getProducts(): Promise<ProductsResponse> {
+  await ensureShopifyScopes();
   const data = await request<ProductsResponse>(PRODUCTS_PATH);
   return { ...data, nodes: data.nodes.map(normalizeProduct) };
 }
