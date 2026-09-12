@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useUser } from "@clerk/react";
 import { ProductTable } from "../components/ProductTable";
+import { apiConfigured, getProducts } from "../services/api";
 import { readProducts, saveProducts, logActivity } from "../services/localStore";
 import { canPerform, getUserRole } from "../services/permissions";
 import type { Product } from "../types/product";
@@ -16,6 +17,29 @@ export function Products() {
   const [status, setStatus] = useState("todos");
   const [editing, setEditing] = useState<Editing>(null);
   const [draft, setDraft] = useState({ title: "", sku: "", price: 0, weight: 0, weightUnit: "g" });
+  const [loading, setLoading] = useState(apiConfigured);
+  const [apiError, setApiError] = useState("");
+
+  useEffect(() => {
+    if (!apiConfigured) return;
+    let active = true;
+    getProducts()
+      .then((response) => {
+        if (!active) return;
+        setProducts(response.nodes);
+        saveProducts(response.nodes);
+        setApiError("");
+      })
+      .catch((error) => {
+        if (!active) return;
+        setApiError(error instanceof Error ? error.message : "No fue posible cargar la API.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
+
   const updateProducts = (next: Product[]) => { setProducts(next); saveProducts(next); };
   const toggleProduct = (id: string) => {
     if (!canManage) return;
@@ -49,7 +73,13 @@ export function Products() {
     const matchesStatus = status === "todos" || (status === "disponible" && quantity > 5) || (status === "bajo" && quantity > 0 && quantity <= 5) || (status === "agotado" && quantity === 0);
     return matchesSearch && matchesStatus;
   }), [products, search, status]);
-  return <section className="panel full-panel"><div className="panel-header"><div><p className="eyebrow">Shopify</p><h2>Productos</h2></div><span className="muted">{filteredProducts.length} de {products.length}</span></div><div className="toolbar"><input aria-label="Buscar productos" placeholder="Buscar por producto o SKU..." value={search} onChange={(e) => setSearch(e.target.value)} /><select aria-label="Filtrar por stock" value={status} onChange={(e) => setStatus(e.target.value)}><option value="todos">Todos</option><option value="disponible">Stock normal</option><option value="bajo">Stock bajo</option><option value="agotado">Agotados</option></select></div><ProductTable products={filteredProducts} showWeight actions={canManage ? { onEdit: openEdit, onToggle: toggleProduct, onDelete: deleteProduct } : undefined} />
+
+  return <section className="panel full-panel">
+    <div className="panel-header"><div><p className="eyebrow">Shopify</p><h2>Productos</h2></div><span className="muted">{filteredProducts.length} de {products.length}</span></div>
+    {loading && <p className="muted">Conectando con Shopify…</p>}
+    {apiError && <p className="status warning">API no disponible; mostrando datos locales.</p>}
+    <div className="toolbar"><input aria-label="Buscar productos" placeholder="Buscar por producto o SKU..." value={search} onChange={(e) => setSearch(e.target.value)} /><select aria-label="Filtrar por stock" value={status} onChange={(e) => setStatus(e.target.value)}><option value="todos">Todos</option><option value="disponible">Stock normal</option><option value="bajo">Stock bajo</option><option value="agotado">Agotados</option></select></div>
+    <ProductTable products={filteredProducts} showWeight actions={canManage ? { onEdit: openEdit, onToggle: toggleProduct, onDelete: deleteProduct } : undefined} />
     {editing && canManage && <div className="modal-backdrop"><div className="modal-card"><p className="eyebrow">Edición</p><h2>Editar producto</h2><label>Nombre<input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></label><label>SKU<input value={draft.sku} placeholder="SKU de variante" onChange={(e) => setDraft({ ...draft, sku: e.target.value })} /></label><label>Precio<input type="number" min="0" value={draft.price} onChange={(e) => setDraft({ ...draft, price: Number(e.target.value) })} /></label><label>Peso<input type="number" min="0" value={draft.weight} onChange={(e) => setDraft({ ...draft, weight: Number(e.target.value) })} /></label><label>Unidad<select value={draft.weightUnit} onChange={(e) => setDraft({ ...draft, weightUnit: e.target.value })}><option value="g">g</option><option value="kg">kg</option><option value="KILOGRAMS">KILOGRAMS</option></select></label><p className="muted">El stock se gestiona desde Inventario.</p><div className="modal-actions"><button className="action-button" onClick={() => setEditing(null)}>Cancelar</button><button className="primary-button" onClick={saveEdit}>Guardar cambios</button></div></div></div>}
   </section>;
 }
