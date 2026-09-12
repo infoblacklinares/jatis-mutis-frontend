@@ -1,11 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { createClerkClient } from "@clerk/backend";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-
-const clerk = createClerkClient({
-  secretKey: process.env.CLERK_SECRET_KEY,
-  publishableKey: process.env.CLERK_PUBLISHABLE_KEY || process.env.VITE_CLERK_PUBLISHABLE_KEY,
-});
 
 const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-07";
 
@@ -16,15 +10,6 @@ type TokenResponse = { access_token?: string; error?: string; error_description?
 type ShopifyIdTokenClaims = { iss?: string; dest?: string; aud?: string; exp?: number; nbf?: number };
 
 function json(res: VercelResponse, status: number, body: unknown) { return res.status(status).json(body); }
-function authorizedParties() { return (process.env.CLERK_AUTHORIZED_PARTIES || process.env.APP_URL || "").split(",").map((value) => value.trim()).filter(Boolean); }
-function requestUrl(req: VercelRequest) { const forwardedProto = String(req.headers["x-forwarded-proto"] || "https").split(",")[0].trim(); const host = String(req.headers.host || "localhost").split(",")[0].trim(); return `${forwardedProto}://${host}${req.url || "/api/shopify/products"}`; }
-
-async function requireClerkAuthentication(req: VercelRequest) {
-  const request = new Request(requestUrl(req), { method: req.method || "GET", headers: new Headers(req.headers as Record<string, string>) });
-  const state = await clerk.authenticateRequest(request, { authorizedParties: authorizedParties() });
-  if (!state.isAuthenticated) throw new Error("UNAUTHORIZED");
-}
-
 function base64UrlDecode(value: string) { const normalized = value.replace(/-/g, "+").replace(/_/g, "/"); return Buffer.from(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="), "base64"); }
 
 function verifyShopifyIdToken(token: string, clientId: string, clientSecret: string) {
@@ -73,14 +58,13 @@ function normalize(product: ShopifyProduct) {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (req.method !== "GET") return json(res, 405, { error: "Método no permitido." });
-    await requireClerkAuthentication(req);
     const clientId = process.env.SHOPIFY_CLIENT_ID || "";
     const clientSecret = process.env.SHOPIFY_CLIENT_SECRET || "";
     const authorization = String(req.headers.authorization || "");
     const customIdToken = String(req.headers["x-shopify-id-token"] || "");
     const idToken = customIdToken || (authorization.startsWith("Bearer ") ? authorization.slice(7) : "");
     if (!clientId || !clientSecret) return json(res, 503, { error: "Shopify no está configurado en el servidor." });
-    if (!idToken) return json(res, 401, { error: "Falta la sesión de Shopify. Abre Jatis Mutis desde Shopify Admin." });
+    if (!idToken) return json(res, 401, { error: "Falta la sesión de Shopify. Abre Jatis Mutis desde Shopify Admin.", "X-Shopify-Retry-Invalid-Session-Request": "1" });
     const storeDomain = verifyShopifyIdToken(idToken, clientId, clientSecret);
     const accessToken = await getShopifyAccessToken(storeDomain, clientId, clientSecret, idToken);
     const nodes: ShopifyProduct[] = []; let after: string | null = null; let hasNextPage = true;
@@ -88,7 +72,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return json(res, 200, { nodes: nodes.map(normalize), count: nodes.length, pageInfo: { hasNextPage: false, endCursor: null }, source: "shopify" });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Error interno";
-    if (message === "UNAUTHORIZED") return json(res, 401, { error: "No autenticado." });
+    if (message.startsWith("SHOPIFY_ID_TOKEN_")) return json(res, 401, { error: "Sesión de Shopify inválida o expirada.", detail: message, "X-Shopify-Retry-Invalid-Session-Request": "1" });
     console.error(error); return json(res, 502, { error: "No fue posible consultar Shopify.", detail: message });
   }
 }
