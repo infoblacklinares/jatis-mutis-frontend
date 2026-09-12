@@ -16,7 +16,7 @@ createRoot(document.getElementById("root")!).render(
     <ClerkProvider
       publishableKey={publishableKey}
       afterSignOutUrl="/"
-      appearance={{ localization: esES }}
+      localization={esES}
     >
       <App />
     </ClerkProvider>
