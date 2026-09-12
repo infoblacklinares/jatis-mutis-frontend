@@ -40,6 +40,14 @@ type ShopifyResponse = {
   errors?: Array<{ message: string }>;
 };
 
+type TokenResponse = {
+  access_token?: string;
+  scope?: string;
+  expires_in?: number;
+  error?: string;
+  error_description?: string;
+};
+
 function json(res: VercelResponse, status: number, body: unknown) {
   return res.status(status).json(body);
 }
@@ -80,14 +88,33 @@ const query = `
   }
 `;
 
+async function getShopifyAccessToken(shop: string, clientId: string, clientSecret: string) {
+  const response = await fetch(`https://${shop}.myshopify.com/admin/oauth/access_token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: clientId,
+      client_secret: clientSecret,
+    }).toString(),
+  });
+
+  const payload = await response.json() as TokenResponse;
+  if (!response.ok || !payload.access_token) {
+    const detail = payload.error_description || payload.error || `SHOPIFY_TOKEN_HTTP_${response.status}`;
+    throw new Error(detail);
+  }
+  return payload.access_token;
+}
+
 async function shopifyGraphql(storeDomain: string, accessToken: string, variables: Record<string, unknown>) {
   const response = await fetch(`https://${storeDomain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": accessToken },
     body: JSON.stringify({ query, variables }),
   });
-  if (!response.ok) throw new Error(`SHOPIFY_HTTP_${response.status}`);
   const payload = await response.json() as ShopifyResponse;
+  if (!response.ok) throw new Error(`SHOPIFY_HTTP_${response.status}`);
   if (payload.errors?.length) throw new Error(payload.errors.map((error) => error.message).join("; "));
   if (!payload.data?.products) throw new Error("SHOPIFY_PRODUCTS_EMPTY");
   return payload.data.products;
@@ -125,10 +152,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (req.method !== "GET") return json(res, 405, { error: "Método no permitido." });
     await requireAuthenticated(req);
-    const storeDomain = (process.env.SHOPIFY_STORE_DOMAIN || "").replace(/^https?:\/\//, "").replace(/\/$/, "");
-    const accessToken = process.env.SHOPIFY_ACCESS_TOKEN || "";
-    if (!storeDomain || !accessToken) return json(res, 503, { error: "Shopify no está configurado en el servidor." });
 
+    const storeDomain = (process.env.SHOPIFY_STORE_DOMAIN || "")
+      .replace(/^https?:\/\//, "").replace(/\.myshopify\.com\/?$/, "").replace(/\/$/, "");
+    const clientId = process.env.SHOPIFY_CLIENT_ID || "";
+    const clientSecret = process.env.SHOPIFY_CLIENT_SECRET || "";
+    if (!storeDomain || !clientId || !clientSecret) {
+      return json(res, 503, { error: "Shopify no está configurado en el servidor." });
+    }
+
+    const accessToken = await getShopifyAccessToken(storeDomain, clientId, clientSecret);
     const nodes: ShopifyProduct[] = [];
     let after: string | null = null;
     let hasNextPage = true;
