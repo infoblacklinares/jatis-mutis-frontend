@@ -17,28 +17,26 @@ type ShopifyProduct = {
   vendor: string;
   productType: string;
   tags: string[];
-  variants: {
-    nodes: Array<{
-      id: string;
-      sku: string | null;
-      title: string;
-      inventoryQuantity: number;
-      price: string;
-      compareAtPrice: string | null;
-      weight: number;
-      weightUnit: string;
-      availableForSale: boolean;
-    }>;
-  };
+  variants: { nodes: Array<{
+    id: string;
+    sku: string | null;
+    title: string;
+    inventoryQuantity: number;
+    price: string;
+    compareAtPrice: string | null;
+    weight: number;
+    weightUnit: string;
+    availableForSale: boolean;
+  }> };
+};
+
+type ShopifyProducts = {
+  nodes: ShopifyProduct[];
+  pageInfo: { hasNextPage: boolean; endCursor: string | null };
 };
 
 type ShopifyResponse = {
-  data?: {
-    products?: {
-      nodes: ShopifyProduct[];
-      pageInfo: { hasNextPage: boolean; endCursor: string | null };
-    };
-  };
+  data?: { products?: ShopifyProducts };
   errors?: Array<{ message: string }>;
 };
 
@@ -48,9 +46,7 @@ function json(res: VercelResponse, status: number, body: unknown) {
 
 function authorizedParties() {
   return (process.env.CLERK_AUTHORIZED_PARTIES || process.env.APP_URL || "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
+    .split(",").map((value) => value.trim()).filter(Boolean);
 }
 
 function requestUrl(req: VercelRequest) {
@@ -64,9 +60,7 @@ async function requireAuthenticated(req: VercelRequest) {
     method: req.method || "GET",
     headers: new Headers(req.headers as Record<string, string>),
   });
-  const state = await clerk.authenticateRequest(request, {
-    authorizedParties: authorizedParties(),
-  });
+  const state = await clerk.authenticateRequest(request, { authorizedParties: authorizedParties() });
   if (!state.isAuthenticated) throw new Error("UNAUTHORIZED");
 }
 
@@ -74,26 +68,11 @@ const query = `
   query Products($first: Int!, $after: String) {
     products(first: $first, after: $after, sortKey: TITLE) {
       nodes {
-        id
-        title
-        handle
-        descriptionHtml
+        id title handle descriptionHtml
         featuredImage { url }
-        vendor
-        productType
-        tags
+        vendor productType tags
         variants(first: 100) {
-          nodes {
-            id
-            sku
-            title
-            inventoryQuantity
-            price
-            compareAtPrice
-            weight
-            weightUnit
-            availableForSale
-          }
+          nodes { id sku title inventoryQuantity price compareAtPrice weight weightUnit availableForSale }
         }
       }
       pageInfo { hasNextPage endCursor }
@@ -101,20 +80,17 @@ const query = `
   }
 `;
 
-async function shopifyGraphql<T>(storeDomain: string, accessToken: string, variables: Record<string, unknown>): Promise<T> {
+async function shopifyGraphql(storeDomain: string, accessToken: string, variables: Record<string, unknown>) {
   const response = await fetch(`https://${storeDomain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Shopify-Access-Token": accessToken,
-    },
+    headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": accessToken },
     body: JSON.stringify({ query, variables }),
   });
-
   if (!response.ok) throw new Error(`SHOPIFY_HTTP_${response.status}`);
   const payload = await response.json() as ShopifyResponse;
   if (payload.errors?.length) throw new Error(payload.errors.map((error) => error.message).join("; "));
-  return payload.data as T;
+  if (!payload.data?.products) throw new Error("SHOPIFY_PRODUCTS_EMPTY");
+  return payload.data.products;
 }
 
 function normalize(product: ShopifyProduct) {
@@ -128,7 +104,6 @@ function normalize(product: ShopifyProduct) {
     weightUnit: variant.weightUnit,
     available: variant.availableForSale,
   }));
-
   return {
     id: product.id,
     title: product.title,
@@ -150,24 +125,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (req.method !== "GET") return json(res, 405, { error: "Método no permitido." });
     await requireAuthenticated(req);
-
     const storeDomain = (process.env.SHOPIFY_STORE_DOMAIN || "").replace(/^https?:\/\//, "").replace(/\/$/, "");
     const accessToken = process.env.SHOPIFY_ACCESS_TOKEN || "";
-    if (!storeDomain || !accessToken) {
-      return json(res, 503, { error: "Shopify no está configurado en el servidor." });
-    }
+    if (!storeDomain || !accessToken) return json(res, 503, { error: "Shopify no está configurado en el servidor." });
 
     const nodes: ShopifyProduct[] = [];
     let after: string | null = null;
     let hasNextPage = true;
-
     while (hasNextPage) {
-      const data = await shopifyGraphql<{ products: ShopifyResponse["data"]["products"] }>(storeDomain, accessToken, {
-        first: 100,
-        after,
-      });
-      const products = data.products;
-      if (!products) throw new Error("SHOPIFY_PRODUCTS_EMPTY");
+      const products = await shopifyGraphql(storeDomain, accessToken, { first: 100, after });
       nodes.push(...products.nodes);
       hasNextPage = products.pageInfo.hasNextPage;
       after = products.pageInfo.endCursor;
