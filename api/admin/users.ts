@@ -77,7 +77,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const invitation = await clerk.invitations.createInvitation({
         emailAddress: normalizedEmail,
         notify: true,
-        redirectUrl: process.env.APP_URL || undefined,
         publicMetadata: { role, firstName },
       });
       return json(res, 201, { created: true, invitation: { id: invitation.id, email: invitation.emailAddress, status: invitation.status } });
