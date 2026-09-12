@@ -3,7 +3,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 const clerk = createClerkClient({
   secretKey: process.env.CLERK_SECRET_KEY,
-  publishableKey: process.env.VITE_CLERK_PUBLISHABLE_KEY,
+  publishableKey: process.env.CLERK_PUBLISHABLE_KEY || process.env.VITE_CLERK_PUBLISHABLE_KEY,
 });
 
 const roles = ["Administrador", "Vendedor", "Solo lectura"] as const;
@@ -20,8 +20,14 @@ function authorizedParties() {
     .filter(Boolean);
 }
 
+function requestUrl(req: VercelRequest) {
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "https").split(",")[0].trim();
+  const host = String(req.headers.host || "localhost").split(",")[0].trim();
+  return `${forwardedProto}://${host}${req.url || "/api/admin/users"}`;
+}
+
 async function requireAdmin(req: VercelRequest) {
-  const request = new Request(`${process.env.APP_URL || "http://localhost"}${req.url || "/api/admin/users"}`, {
+  const request = new Request(requestUrl(req), {
     method: req.method || "GET",
     headers: new Headers(req.headers as Record<string, string>),
     body: req.method === "GET" || req.method === "HEAD" ? undefined : JSON.stringify(req.body ?? {}),
