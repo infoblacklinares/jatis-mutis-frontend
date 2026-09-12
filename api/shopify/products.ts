@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { createClerkClient } from "@clerk/backend";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
@@ -42,10 +43,16 @@ type ShopifyResponse = {
 
 type TokenResponse = {
   access_token?: string;
-  scope?: string;
-  expires_in?: number;
   error?: string;
   error_description?: string;
+};
+
+type ShopifyIdTokenClaims = {
+  iss?: string;
+  dest?: string;
+  aud?: string;
+  exp?: number;
+  nbf?: number;
 };
 
 function json(res: VercelResponse, status: number, body: unknown) {
@@ -63,13 +70,52 @@ function requestUrl(req: VercelRequest) {
   return `${forwardedProto}://${host}${req.url || "/api/shopify/products"}`;
 }
 
-async function requireAuthenticated(req: VercelRequest) {
+async function requireClerkAuthentication(req: VercelRequest) {
   const request = new Request(requestUrl(req), {
     method: req.method || "GET",
     headers: new Headers(req.headers as Record<string, string>),
   });
   const state = await clerk.authenticateRequest(request, { authorizedParties: authorizedParties() });
   if (!state.isAuthenticated) throw new Error("UNAUTHORIZED");
+}
+
+function base64UrlDecode(value: string) {
+  return Buffer.from(value.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+}
+
+function verifyShopifyIdToken(token: string, clientId: string, clientSecret: string) {
+  const parts = token.split(".");
+  if (parts.length !== 3) throw new Error("SHOPIFY_ID_TOKEN_INVALID");
+
+  const [encodedHeader, encodedPayload, encodedSignature] = parts;
+  const header = JSON.parse(base64UrlDecode(encodedHeader).toString("utf8")) as { alg?: string };
+  const claims = JSON.parse(base64UrlDecode(encodedPayload).toString("utf8")) as ShopifyIdTokenClaims;
+
+  if (header.alg !== "HS256") throw new Error("SHOPIFY_ID_TOKEN_ALGORITHM_INVALID");
+  const expectedSignature = createHmac("sha256", clientSecret)
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest();
+  const receivedSignature = base64UrlDecode(encodedSignature);
+  if (receivedSignature.length !== expectedSignature.length || !timingSafeEqual(receivedSignature, expectedSignature)) {
+    throw new Error("SHOPIFY_ID_TOKEN_SIGNATURE_INVALID");
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (!claims.exp || claims.exp <= now) throw new Error("SHOPIFY_ID_TOKEN_EXPIRED");
+  if (!claims.nbf || claims.nbf > now) throw new Error("SHOPIFY_ID_TOKEN_NOT_ACTIVE");
+  if (claims.aud !== clientId) throw new Error("SHOPIFY_ID_TOKEN_AUDIENCE_INVALID");
+  if (!claims.iss || !claims.dest) throw new Error("SHOPIFY_ID_TOKEN_DESTINATION_MISSING");
+
+  const issuer = new URL(claims.iss);
+  const destination = new URL(claims.dest);
+  if (issuer.hostname !== destination.hostname || issuer.pathname !== "/admin") {
+    throw new Error("SHOPIFY_ID_TOKEN_ISSUER_INVALID");
+  }
+  if (!destination.hostname.endsWith(".myshopify.com")) {
+    throw new Error("SHOPIFY_ID_TOKEN_SHOP_INVALID");
+  }
+
+  return destination.hostname;
 }
 
 const query = `
@@ -88,12 +134,15 @@ const query = `
   }
 `;
 
-async function getShopifyAccessToken(shop: string, clientId: string, clientSecret: string) {
-  const response = await fetch(`https://${shop}.myshopify.com/admin/oauth/access_token`, {
+async function getShopifyAccessToken(shopDomain: string, clientId: string, clientSecret: string, idToken: string) {
+  const response = await fetch(`https://${shopDomain}/admin/oauth/access_token`, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
     body: new URLSearchParams({
-      grant_type: "client_credentials",
+      grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+      subject_token: idToken,
+      subject_token_type: "urn:ietf:params:oauth:token-type:id_token",
+      requested_token_type: "urn:shopify:params:oauth:token-type:online-access-token",
       client_id: clientId,
       client_secret: clientSecret,
     }).toString(),
@@ -151,17 +200,20 @@ function normalize(product: ShopifyProduct) {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (req.method !== "GET") return json(res, 405, { error: "Método no permitido." });
-    await requireAuthenticated(req);
+    await requireClerkAuthentication(req);
 
-    const storeDomain = (process.env.SHOPIFY_STORE_DOMAIN || "")
-      .replace(/^https?:\/\//, "").replace(/\.myshopify\.com\/?$/, "").replace(/\/$/, "");
     const clientId = process.env.SHOPIFY_CLIENT_ID || "";
     const clientSecret = process.env.SHOPIFY_CLIENT_SECRET || "";
-    if (!storeDomain || !clientId || !clientSecret) {
+    const idToken = String(req.headers["x-shopify-id-token"] || "");
+    if (!clientId || !clientSecret) {
       return json(res, 503, { error: "Shopify no está configurado en el servidor." });
     }
+    if (!idToken) {
+      return json(res, 401, { error: "Falta la sesión de Shopify. Abre Jatis Mutis desde Shopify Admin." });
+    }
 
-    const accessToken = await getShopifyAccessToken(storeDomain, clientId, clientSecret);
+    const storeDomain = verifyShopifyIdToken(idToken, clientId, clientSecret);
+    const accessToken = await getShopifyAccessToken(storeDomain, clientId, clientSecret, idToken);
     const nodes: ShopifyProduct[] = [];
     let after: string | null = null;
     let hasNextPage = true;
