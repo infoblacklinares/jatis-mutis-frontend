@@ -19,9 +19,13 @@ const permissions: Record<Role, Permission[]> = {
 
 export function getUserRole(user: { publicMetadata?: Record<string, unknown> } | null | undefined): Role {
   const role = user?.publicMetadata?.role;
-  return role === "Administrador" || role === "Vendedor" || role === "Solo lectura" ? role : "Administrador";
+  return role === "Administrador" || role === "Vendedor" || role === "Solo lectura" ? role : "Solo lectura";
 }
 
 export function canAccess(role: Role, permission: Permission) {
   return permissions[role].includes(permission);
+}
+
+export function isAdmin(role: Role) {
+  return role === "Administrador";
 }
