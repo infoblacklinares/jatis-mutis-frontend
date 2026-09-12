@@ -3,7 +3,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-07";
 
-type ShopifyProduct = { id: string; title: string; handle: string; descriptionHtml: string; featuredImage: { url: string } | null; vendor: string; productType: string; tags: string[]; variants: { nodes: Array<{ id: string; sku: string | null; title: string; inventoryQuantity: number; price: string; compareAtPrice: string | null; weight: number; weightUnit: string; availableForSale: boolean }> } };
+type ShopifyProduct = { id: string; title: string; handle: string; descriptionHtml: string; featuredImage: { url: string } | null; vendor: string; productType: string; tags: string[]; variants: { nodes: Array<{ id: string; sku: string | null; title: string; inventoryQuantity: number; price: string; compareAtPrice: string | null; inventoryItem: { measurement: { weight: { value: number; unit: string } | null } } | null; availableForSale: boolean }> } };
 type ShopifyProducts = { nodes: ShopifyProduct[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } };
 type ShopifyResponse = { data?: { products?: ShopifyProducts }; errors?: Array<{ message?: string; extensions?: unknown }> };
 type TokenResponse = { access_token?: string; error?: string; error_description?: string; scope?: string };
@@ -32,7 +32,7 @@ function verifyShopifyIdToken(token: string, clientId: string, clientSecret: str
   return destination.hostname;
 }
 
-const query = `query Products($first: Int!, $after: String) { products(first: $first, after: $after, sortKey: TITLE) { nodes { id title handle descriptionHtml featuredImage { url } vendor productType tags variants(first: 100) { nodes { id sku title inventoryQuantity price compareAtPrice weight weightUnit availableForSale } } } pageInfo { hasNextPage endCursor } } }`;
+const query = `query Products($first: Int!, $after: String) { products(first: $first, after: $after, sortKey: TITLE) { nodes { id title handle descriptionHtml featuredImage { url } vendor productType tags variants(first: 100) { nodes { id sku title inventoryQuantity price compareAtPrice inventoryItem { measurement { weight { value unit } } } availableForSale } } } pageInfo { hasNextPage endCursor } } }`;
 
 async function getShopifyAccessToken(shopDomain: string, clientId: string, clientSecret: string, idToken: string) {
   const response = await fetch(`https://${shopDomain}/admin/oauth/access_token`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:token-exchange", subject_token: idToken, subject_token_type: "urn:ietf:params:oauth:token-type:id_token", requested_token_type: "urn:shopify:params:oauth:token-type:online-access-token", client_id: clientId, client_secret: clientSecret }).toString() });
@@ -52,7 +52,7 @@ async function shopifyGraphql(storeDomain: string, accessToken: string, variable
 }
 
 function normalize(product: ShopifyProduct) {
-  const variants = product.variants.nodes.map((variant) => ({ id: variant.id, sku: variant.sku || "", title: variant.title, quantity: Number(variant.inventoryQuantity || 0), price: Number(variant.price || 0), weight: Number(variant.weight || 0), weightUnit: variant.weightUnit, available: variant.availableForSale }));
+  const variants = product.variants.nodes.map((variant) => ({ id: variant.id, sku: variant.sku || "", title: variant.title, quantity: Number(variant.inventoryQuantity || 0), price: Number(variant.price || 0), weight: Number(variant.inventoryItem?.measurement?.weight?.value || 0), weightUnit: variant.inventoryItem?.measurement?.weight?.unit || "", available: variant.availableForSale }));
   return { id: product.id, title: product.title, handle: product.handle, description: product.descriptionHtml, image: product.featuredImage?.url || "", price: variants[0]?.price || 0, compareAtPrice: Number(product.variants.nodes[0]?.compareAtPrice || 0) || null, currency: "CLP", available: variants.some((variant) => variant.available), vendor: product.vendor, productType: product.productType, tags: product.tags, variants };
 }
 
