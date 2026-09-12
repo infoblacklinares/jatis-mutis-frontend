@@ -1,34 +1,30 @@
 import { useMemo, useState } from "react";
 import { ProductTable } from "../components/ProductTable";
-import { products } from "../data/mocks";
+import { readProducts, saveProducts, logActivity } from "../services/localStore";
+import type { Product } from "../types/product";
 
 export function Inventory() {
+  const [products, setProducts] = useState<Product[]>(readProducts);
   const [filter, setFilter] = useState("todos");
+  const [editing, setEditing] = useState<{ productId: string; variantId: string } | null>(null);
+  const [amount, setAmount] = useState(1);
+  const [reason, setReason] = useState("Reposición");
   const allVariants = products.flatMap((product) => product.variants);
   const totalUnits = allVariants.reduce((total, variant) => total + variant.quantity, 0);
   const lowStock = allVariants.filter((variant) => variant.quantity > 0 && variant.quantity <= 5).length;
   const outOfStock = allVariants.filter((variant) => variant.quantity === 0).length;
-
-  const filteredProducts = useMemo(() => products.map((product) => ({
-    ...product,
-    variants: product.variants.filter((variant) => filter === "todos" || (filter === "bajo" && variant.quantity > 0 && variant.quantity <= 5) || (filter === "agotado" && variant.quantity === 0) || (filter === "normal" && variant.quantity > 5)),
-  })).filter((product) => product.variants.length > 0), [filter]);
-
+  const selected = editing ? products.find((p) => p.id === editing.productId)?.variants.find((v) => v.id === editing.variantId) : undefined;
+  const filteredProducts = useMemo(() => products.map((product) => ({ ...product, variants: product.variants.filter((variant) => filter === "todos" || (filter === "bajo" && variant.quantity > 0 && variant.quantity <= 5) || (filter === "agotado" && variant.quantity === 0) || (filter === "normal" && variant.quantity > 5)) })).filter((product) => product.variants.length > 0), [filter, products]);
+  const adjust = (delta: number) => {
+    if (!editing || !selected) return;
+    const next = products.map((product) => product.id !== editing.productId ? product : { ...product, variants: product.variants.map((variant) => variant.id !== editing.variantId ? variant : { ...variant, quantity: Math.max(0, variant.quantity + delta) }) });
+    setProducts(next); saveProducts(next); logActivity(delta > 0 ? "Entrada de inventario" : "Salida de inventario", `${selected.sku || selected.title}: ${Math.abs(delta)} unidad(es) · ${reason}`); setEditing(null); setAmount(1);
+  };
   return <section className="panel full-panel">
     <div className="panel-header"><div><p className="eyebrow">Control de existencias</p><h2>Inventario</h2></div><span className="status warning">{lowStock} con stock bajo</span></div>
-    <div className="stats-grid compact-stats">
-      <div className="stat-card"><span>Unidades</span><strong>{totalUnits}</strong><small>Stock total</small></div>
-      <div className="stat-card"><span>Stock bajo</span><strong>{lowStock}</strong><small>Requieren atención</small></div>
-      <div className="stat-card"><span>Agotados</span><strong>{outOfStock}</strong><small>Sin existencias</small></div>
-    </div>
-    <div className="toolbar">
-      <select aria-label="Filtrar inventario" value={filter} onChange={(event) => setFilter(event.target.value)}>
-        <option value="todos">Todo el inventario</option>
-        <option value="normal">Stock normal</option>
-        <option value="bajo">Stock bajo</option>
-        <option value="agotado">Agotados</option>
-      </select>
-    </div>
-    <ProductTable products={filteredProducts} showWeight />
+    <div className="stats-grid compact-stats"><div className="stat-card"><span>Unidades</span><strong>{totalUnits}</strong><small>Stock total</small></div><div className="stat-card"><span>Stock bajo</span><strong>{lowStock}</strong><small>Requieren atención</small></div><div className="stat-card"><span>Agotados</span><strong>{outOfStock}</strong><small>Sin existencias</small></div></div>
+    <div className="toolbar"><select aria-label="Filtrar inventario" value={filter} onChange={(e) => setFilter(e.target.value)}><option value="todos">Todo el inventario</option><option value="normal">Stock normal</option><option value="bajo">Stock bajo</option><option value="agotado">Agotados</option></select></div>
+    <ProductTable products={filteredProducts} showWeight actions={{ onToggle: (id) => { const p = products.find((x) => x.id === id); const v = p?.variants[0]; if (p && v) setEditing({ productId: p.id, variantId: v.id }); }, onDelete: undefined }} />
+    {editing && selected && <div className="modal-backdrop"><div className="modal-card"><p className="eyebrow">Movimiento de inventario</p><h2>{selected.title}</h2><p className="muted">SKU: {selected.sku || "—"} · Stock actual: <strong>{selected.quantity}</strong></p><label>Motivo<select value={reason} onChange={(e) => setReason(e.target.value)}><option>Reposición</option><option>Ajuste de inventario</option><option>Merma</option><option>Devolución</option><option>Venta manual</option></select></label><label>Cantidad<input type="number" min="1" value={amount} onChange={(e) => setAmount(Math.max(1, Number(e.target.value) || 1))} /></label><div className="modal-actions"><button className="action-button" onClick={() => setEditing(null)}>Cancelar</button><button className="action-button" onClick={() => adjust(amount)}>+ {amount} entrada</button><button className="primary-button" onClick={() => adjust(-amount)}>- {amount} salida</button></div></div></div>}
   </section>;
 }
