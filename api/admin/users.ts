@@ -63,15 +63,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (req.method === "POST") {
       const { email, role = "Vendedor", firstName = "" } = req.body || {};
-      if (!email || typeof email !== "string") return json(res, 400, { error: "El correo es obligatorio." });
+      const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
+      if (!normalizedEmail) return json(res, 400, { error: "El correo es obligatorio." });
       if (!roles.includes(role as Role)) return json(res, 400, { error: "Rol inválido." });
+
+      const existing = await clerk.users.getUserList({ emailAddress: [normalizedEmail], limit: 1 });
+      if (existing.data.length > 0) {
+        const existingUser = existing.data[0];
+        await clerk.users.updateUserMetadata(existingUser.id, { publicMetadata: { role } });
+        return json(res, 200, { created: false, existing: true, user: normalizeUser({ ...existingUser, publicMetadata: { ...existingUser.publicMetadata, role } }) });
+      }
+
       const invitation = await clerk.invitations.createInvitation({
-        emailAddress: email.trim(),
+        emailAddress: normalizedEmail,
         notify: true,
         redirectUrl: process.env.APP_URL || undefined,
         publicMetadata: { role, firstName },
       });
-      return json(res, 201, { invitation: { id: invitation.id, email: invitation.emailAddress, status: invitation.status } });
+      return json(res, 201, { created: true, invitation: { id: invitation.id, email: invitation.emailAddress, status: invitation.status } });
     }
 
     const userId = String(req.body?.userId || "");
