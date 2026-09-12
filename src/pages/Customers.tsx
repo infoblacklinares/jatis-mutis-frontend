@@ -1,39 +1,16 @@
 import { useMemo, useState } from "react";
-import { customers } from "../data/mocks";
+import { readCustomers } from "../services/localStore";
+import { readOrders } from "../services/localStore";
+import type { Customer } from "../types/customer";
 
 const money = (value: number) => value.toLocaleString("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 });
-
 export function Customers() {
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("Todos");
-
-  const filtered = useMemo(() => customers.filter((customer) => {
-    const term = search.toLowerCase().trim();
-    const matchesSearch = !term || customer.name.toLowerCase().includes(term) || customer.email.toLowerCase().includes(term) || customer.phone.includes(term);
-    const matchesStatus = status === "Todos" || customer.status === status;
-    return matchesSearch && matchesStatus;
-  }), [search, status]);
-
-  return (
-    <section className="panel full-panel">
-      <div className="panel-header">
-        <div><p className="eyebrow">Shopify</p><h2>Clientes</h2></div>
-        <span className="muted">{filtered.length} clientes</span>
-      </div>
-      <div className="toolbar">
-        <input className="search-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nombre, correo o teléfono..." />
-        <select className="filter-select" value={status} onChange={(event) => setStatus(event.target.value)}>
-          <option>Todos</option><option>Activo</option><option>Inactivo</option>
-        </select>
-      </div>
-      <div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Contacto</th><th>Pedidos</th><th>Total comprado</th><th>Última compra</th><th>Estado</th></tr></thead>
-        <tbody>{filtered.map((customer) => <tr key={customer.id}>
-          <td><strong>{customer.name}</strong></td>
-          <td><div className="table-stack"><span>{customer.email}</span><span className="muted">{customer.phone}</span></div></td>
-          <td>{customer.ordersCount}</td><td>{money(customer.totalSpent)}</td><td>{customer.lastPurchase}</td>
-          <td><span className={`status ${customer.status === "Activo" ? "ok" : "warning"}`}>{customer.status}</span></td>
-        </tr>)}</tbody>
-      </table></div>
-    </section>
-  );
+  const [customers] = useState<Customer[]>(readCustomers);
+  const [search, setSearch] = useState(""); const [status, setStatus] = useState("Todos"); const [selected, setSelected] = useState<Customer | null>(null);
+  const orders = readOrders();
+  const filtered = useMemo(() => customers.filter((customer) => { const term = search.toLowerCase().trim(); return (!term || `${customer.name} ${customer.email} ${customer.phone}`.toLowerCase().includes(term)) && (status === "Todos" || customer.status === status); }), [customers, search, status]);
+  const history = selected ? orders.filter((order) => order.customer === selected.name || order.email === selected.email) : [];
+  return <section className="panel full-panel"><div className="panel-header"><div><p className="eyebrow">Shopify</p><h2>Clientes</h2></div><span className="muted">{filtered.length} clientes</span></div><div className="toolbar"><input className="search-input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nombre, correo o teléfono..." /><select className="filter-select" value={status} onChange={(e) => setStatus(e.target.value)}><option>Todos</option><option>Activo</option><option>Inactivo</option></select></div><div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Contacto</th><th>Pedidos</th><th>Total comprado</th><th>Última compra</th><th>Estado</th></tr></thead><tbody>{filtered.map((customer) => <tr key={customer.id} className="clickable" onClick={() => setSelected(customer)}><td><strong>{customer.name}</strong></td><td><div className="table-stack"><span>{customer.email}</span><span className="muted">{customer.phone}</span></div></td><td>{customer.ordersCount}</td><td>{money(customer.totalSpent)}</td><td>{customer.lastPurchase}</td><td><span className={`status ${customer.status === "Activo" ? "ok" : "warning"}`}>{customer.status}</span></td></tr>)}</tbody></table></div>
+    {selected && <div className="modal-backdrop"><div className="modal-card"><p className="eyebrow">Ficha del cliente</p><h2>{selected.name}</h2><div className="info-grid"><div><span>Correo</span><strong>{selected.email}</strong></div><div><span>Teléfono</span><strong>{selected.phone}</strong></div><div><span>Pedidos</span><strong>{selected.ordersCount}</strong></div><div><span>Total comprado</span><strong>{money(selected.totalSpent)}</strong></div></div><h3 className="modal-section-title">Historial de pedidos</h3>{history.length ? <div className="table-stack">{history.map((order) => <div className="detail-row" key={order.id}><span>{order.id} · {order.date}</span><strong>{money(order.total)}</strong></div>)}</div> : <div className="empty-state"><strong>Sin pedidos asociados</strong><span>La API podrá relacionar el historial mediante el ID real del cliente.</span></div>}<div className="modal-actions"><button className="action-button" onClick={() => setSelected(null)}>Cerrar</button></div></div></div>}
+  </section>;
 }
