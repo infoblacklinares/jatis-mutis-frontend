@@ -7,6 +7,7 @@ export interface ProductVariant {
   weight: number;
   weightUnit: string;
   available: boolean;
+  inventoryItemId?: string;
 }
 
 export interface Product {
