@@ -12,6 +12,7 @@ type ShopifyOrder = {
   displayFulfillmentStatus: string | null;
   totalPriceSet: { shopMoney: { amount: string; currencyCode: string } };
   customer: { displayName: string; email: string | null } | null;
+  fulfillments: { nodes: Array<{ id: string; status: string; displayStatus: string | null; trackingInfo: Array<{ company: string | null; number: string | null; url: string | null }> }> };
   lineItems: { nodes: Array<{ quantity: number; name: string; sku: string | null; originalUnitPriceSet: { shopMoney: { amount: string } }; variant: { id: string; sku: string | null; product: { id: string; title: string } | null } | null }> };
 };
 
@@ -31,7 +32,7 @@ async function exchange(shop: string, clientId: string, secret: string, idToken:
   const response = await fetch(`https://${shop}/admin/oauth/access_token`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:token-exchange", subject_token: idToken, subject_token_type: "urn:ietf:params:oauth:token-type:id_token", requested_token_type: "urn:shopify:params:oauth:token-type:online-access-token", client_id: clientId, client_secret: secret }).toString() });
   const payload = await response.json() as TokenResponse; if (!response.ok || !payload.access_token) throw new Error(`TOKEN_EXCHANGE_HTTP_${response.status}:${payload.error_description || payload.error || "sin detalle"}`); return payload.access_token;
 }
-const query = `query Orders($first: Int!, $after: String) { orders(first: $first, after: $after, sortKey: CREATED_AT, reverse: true) { nodes { id name createdAt displayFinancialStatus displayFulfillmentStatus totalPriceSet { shopMoney { amount currencyCode } } customer { displayName email } lineItems(first: 100) { nodes { quantity name sku originalUnitPriceSet { shopMoney { amount } } variant { id sku product { id title } } } } } pageInfo { hasNextPage endCursor } } }`;
+const query = `query Orders($first: Int!, $after: String) { orders(first: $first, after: $after, sortKey: CREATED_AT, reverse: true) { nodes { id name createdAt displayFinancialStatus displayFulfillmentStatus totalPriceSet { shopMoney { amount currencyCode } } customer { displayName email } fulfillments(first: 10) { nodes { id status displayStatus trackingInfo { company number url } } } lineItems(first: 100) { nodes { quantity name sku originalUnitPriceSet { shopMoney { amount } } variant { id sku product { id title } } } } } pageInfo { hasNextPage endCursor } } }`;
 async function graphql(shop: string, token: string, variables: Record<string, unknown>) {
   const response = await fetch(`https://${shop}/admin/api/${API_VERSION}/graphql.json`, { method: "POST", headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token }, body: JSON.stringify({ query, variables }) });
   const payload = await response.json() as { data?: { orders?: { nodes: ShopifyOrder[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } }; errors?: Array<{ message?: string }> };
@@ -48,7 +49,9 @@ function status(financial: string | null, fulfillment: string | null) {
   return "Pendiente";
 }
 function normalize(order: ShopifyOrder) {
-  return { id: order.name || order.id, date: new Date(order.createdAt).toLocaleString("es-CL"), customer: order.customer?.displayName || "Cliente sin nombre", email: order.customer?.email || undefined, total: Number(order.totalPriceSet.shopMoney.amount || 0), status: status(order.displayFinancialStatus, order.displayFulfillmentStatus), paymentStatus: order.displayFinancialStatus || undefined, fulfillmentStatus: order.displayFulfillmentStatus || undefined, items: order.lineItems.nodes.map((item) => ({ productId: item.variant?.product?.id || item.variant?.id || item.name, title: item.variant?.product?.title || item.name, sku: item.sku || item.variant?.sku || "", quantity: item.quantity, price: Number(item.originalUnitPriceSet.shopMoney.amount || 0) })) };
+  const fulfillment = order.fulfillments.nodes[order.fulfillments.nodes.length - 1];
+  const tracking = fulfillment?.trackingInfo?.find((item) => item.number) || fulfillment?.trackingInfo?.[0];
+  return { id: order.name || order.id, date: new Date(order.createdAt).toLocaleString("es-CL"), customer: order.customer?.displayName || "Cliente sin nombre", email: order.customer?.email || undefined, total: Number(order.totalPriceSet.shopMoney.amount || 0), status: status(order.displayFinancialStatus, order.displayFulfillmentStatus), paymentStatus: order.displayFinancialStatus || undefined, fulfillmentStatus: order.displayFulfillmentStatus || undefined, fulfillmentId: fulfillment?.id, fulfillmentStatusDetail: fulfillment?.displayStatus || fulfillment?.status, carrier: tracking?.company || undefined, tracking: tracking?.number || undefined, trackingUrl: tracking?.url || undefined, items: order.lineItems.nodes.map((item) => ({ productId: item.variant?.product?.id || item.variant?.id || item.name, title: item.variant?.product?.title || item.name, sku: item.sku || item.variant?.sku || "", quantity: item.quantity, price: Number(item.originalUnitPriceSet.shopMoney.amount || 0) })) };
 }
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
