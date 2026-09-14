@@ -1,0 +1,19 @@
+.order-modal{width:min(100%,620px)}
+.order-title-row{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px}
+.order-title-row h2{margin:5px 0 2px!important}
+.order-shopify-id{font-size:10px;color:var(--muted)}
+.order-status-badge{display:inline-flex;align-items:center;padding:7px 11px;border-radius:999px;background:var(--primary-soft);color:var(--primary);font-size:10px;font-weight:800;white-space:nowrap}
+.order-status-badge.cancelado{background:var(--danger-soft);color:#c24e5c}
+.order-status-badge.enviado,.order-status-badge.entregado{background:var(--success-soft);color:#258d6b}
+.order-status-badge.pendiente,.order-status-badge.pagado,.order-status-badge.preparando{background:var(--warning-soft);color:#a97017}
+.shopify-status-card{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
+.shopify-status-card>div{padding:13px 14px;border:1px solid var(--border);border-radius:13px;background:var(--surface-soft);display:grid;gap:5px}
+.shopify-status-card span,.dispatch-summary span{color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.05em;font-weight:700}
+.shopify-status-card strong{font-size:12px}
+.dispatch-summary{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-top:18px;padding:13px 14px;border:1px solid var(--border);border-radius:13px;background:#fafaff}
+.dispatch-summary>div{display:grid;gap:4px}
+.dispatch-summary strong{font-size:11px}
+.dispatch-summary a{font-size:10px;color:var(--primary);font-weight:700;text-decoration:none}
+.order-success{margin:0 20px 16px;padding:12px 14px;border-radius:12px;border:1px solid #cdeee2;background:var(--success-soft);display:grid;gap:3px;color:#258d6b}
+.order-success strong{font-size:11px}.order-success span{font-size:10px;line-height:1.5}
+@media(max-width:600px){.order-title-row{align-items:flex-start}.shopify-status-card{grid-template-columns:1fr}.dispatch-summary{display:grid;grid-template-columns:1fr 1fr}.order-status-badge{font-size:9px}}
