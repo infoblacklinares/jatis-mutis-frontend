@@ -3,141 +3,21 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-07";
 const SHOP_DOMAIN = process.env.SHOPIFY_SHOP_DOMAIN || "pyg0dz-hk.myshopify.com";
-const clerk = createClerkClient({
-  secretKey: process.env.CLERK_SECRET_KEY,
-  publishableKey: process.env.CLERK_PUBLISHABLE_KEY || process.env.VITE_CLERK_PUBLISHABLE_KEY,
-});
-
+const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY, publishableKey: process.env.CLERK_PUBLISHABLE_KEY || process.env.VITE_CLERK_PUBLISHABLE_KEY });
 type ShopifyResponse = { data?: any; errors?: Array<{ message?: string }> };
 let cachedToken = "";
 let cachedTokenExpiresAt = 0;
-
-function json(res: VercelResponse, status: number, body: unknown) {
-  return res.status(status).json(body);
-}
-
-function authorizedParties() {
-  return (process.env.CLERK_AUTHORIZED_PARTIES || process.env.APP_URL || "")
-    .split(",").map((value) => value.trim()).filter(Boolean);
-}
-
-function requestUrl(req: VercelRequest) {
-  const proto = String(req.headers["x-forwarded-proto"] || "https").split(",")[0].trim();
-  const host = String(req.headers.host || "localhost").split(",")[0].trim();
-  return `${proto}://${host}${req.url || "/api/shopify/standalone"}`;
-}
-
-async function requireClerk(req: VercelRequest) {
-  const request = new Request(requestUrl(req), {
-    method: req.method || "GET",
-    headers: new Headers(req.headers as Record<string, string>),
-  });
-  const state = await clerk.authenticateRequest(request, { authorizedParties: authorizedParties() });
-  if (!state.isAuthenticated || !state.toAuth().userId) throw new Error("UNAUTHORIZED");
-}
-
-async function getAccessToken() {
-  if (cachedToken && Date.now() < cachedTokenExpiresAt - 60_000) return cachedToken;
-  const clientId = process.env.SHOPIFY_CLIENT_ID || "";
-  const clientSecret = process.env.SHOPIFY_CLIENT_SECRET || "";
-  if (!clientId || !clientSecret) throw new Error("SHOPIFY_NOT_CONFIGURED");
-  const response = await fetch(`https://${SHOP_DOMAIN}/admin/oauth/access_token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
-    body: new URLSearchParams({ grant_type: "client_credentials", client_id: clientId, client_secret: clientSecret }).toString(),
-  });
-  const payload = await response.json() as { access_token?: string; expires_in?: number; error?: string; error_description?: string };
-  if (!response.ok || !payload.access_token) throw new Error(`SHOPIFY_TOKEN_HTTP_${response.status}:${payload.error_description || payload.error || "sin detalle"}`);
-  cachedToken = payload.access_token;
-  cachedTokenExpiresAt = Date.now() + Number(payload.expires_in || 86399) * 1000;
-  return cachedToken;
-}
-
-async function graphql(query: string, variables: Record<string, unknown> = {}) {
-  const token = await getAccessToken();
-  const response = await fetch(`https://${SHOP_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
-    body: JSON.stringify({ query, variables }),
-  });
-  const payload = await response.json() as ShopifyResponse;
-  const details = payload.errors?.map((error) => error.message || "Error GraphQL").join("; ") || "sin detalle";
-  if (!response.ok || payload.errors?.length) throw new Error(`GRAPHQL_ERROR:${details}`);
-  return payload.data;
-}
-
+function json(res: VercelResponse, status: number, body: unknown) { return res.status(status).json(body); }
+function authorizedParties() { return (process.env.CLERK_AUTHORIZED_PARTIES || process.env.APP_URL || "").split(",").map((value) => value.trim()).filter(Boolean); }
+function requestUrl(req: VercelRequest) { const proto = String(req.headers["x-forwarded-proto"] || "https").split(",")[0].trim(); const host = String(req.headers.host || "localhost").split(",")[0].trim(); return `${proto}://${host}${req.url || "/api/shopify/standalone"}`; }
+async function requireClerk(req: VercelRequest) { const request = new Request(requestUrl(req), { method: req.method || "GET", headers: new Headers(req.headers as Record<string, string>) }); const state = await clerk.authenticateRequest(request, { authorizedParties: authorizedParties() }); if (!state.isAuthenticated || !state.toAuth().userId) throw new Error("UNAUTHORIZED"); }
+async function getAccessToken() { if (cachedToken && Date.now() < cachedTokenExpiresAt - 60_000) return cachedToken; const clientId = process.env.SHOPIFY_CLIENT_ID || ""; const clientSecret = process.env.SHOPIFY_CLIENT_SECRET || ""; if (!clientId || !clientSecret) throw new Error("SHOPIFY_NOT_CONFIGURED"); const response = await fetch(`https://${SHOP_DOMAIN}/admin/oauth/access_token`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: new URLSearchParams({ grant_type: "client_credentials", client_id: clientId, client_secret: clientSecret }).toString() }); const payload = await response.json() as { access_token?: string; expires_in?: number; error?: string; error_description?: string }; if (!response.ok || !payload.access_token) throw new Error(`SHOPIFY_TOKEN_HTTP_${response.status}:${payload.error_description || payload.error || "sin detalle"}`); cachedToken = payload.access_token; cachedTokenExpiresAt = Date.now() + Number(payload.expires_in || 86399) * 1000; return cachedToken; }
+async function graphql(query: string) { const token = await getAccessToken(); const response = await fetch(`https://${SHOP_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, { method: "POST", headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token }, body: JSON.stringify({ query }) }); const payload = await response.json() as ShopifyResponse; const details = payload.errors?.map((error) => error.message || "Error GraphQL").join("; ") || "sin detalle"; if (!response.ok || payload.errors?.length) throw new Error(`GRAPHQL_ERROR:${details}`); return payload.data; }
 const productsQuery = `query { products(first: 100, sortKey: TITLE) { nodes { id title handle descriptionHtml featuredImage { url } vendor productType tags variants(first: 100) { nodes { id sku title inventoryQuantity price compareAtPrice availableForSale inventoryItem { id measurement { weight { value unit } } } packageLength: metafield(namespace: "jatis_mutis", key: "package_length_cm") { value } packageWidth: metafield(namespace: "jatis_mutis", key: "package_width_cm") { value } packageHeight: metafield(namespace: "jatis_mutis", key: "package_height_cm") { value } } } } } }`;
 const ordersQuery = `query { orders(first: 100, sortKey: CREATED_AT, reverse: true) { nodes { id name createdAt displayFinancialStatus displayFulfillmentStatus totalPriceSet { shopMoney { amount currencyCode } } customer { displayName defaultEmailAddress { emailAddress } } shippingAddress { firstName lastName company address1 address2 city province provinceCode zip country countryCode phone } lineItems(first: 100) { nodes { quantity name sku originalUnitPriceSet { shopMoney { amount } } weight { value unit } variant { id sku product { id title } } } } fulfillments { id status trackingInfo { company number url } } } } }`;
-const customersQuery = `query { customers(first: 100, sortKey: NAME) { nodes { id displayName firstName lastName defaultEmailAddress { emailAddress } defaultPhoneNumber numberOfOrders amountSpent { amount currencyCode } state createdAt updatedAt lastOrder { id name createdAt totalPriceSet { shopMoney { amount currencyCode } } } } } }`;
+const customersQuery = `query { customers(first: 100, sortKey: NAME) { nodes { id displayName firstName lastName defaultEmailAddress { emailAddress } defaultPhoneNumber { phoneNumber } numberOfOrders amountSpent { amount currencyCode } state createdAt updatedAt lastOrder { id name createdAt totalPriceSet { shopMoney { amount currencyCode } } } } } }`;
 const locationsQuery = `query { locations(first: 50, includeInactive: false) { nodes { id name isActive } } }`;
-
-function productNormalize(product: any) {
-  const variants = (product.variants?.nodes || []).map((variant: any) => ({
-    id: variant.id, sku: variant.sku || "", title: variant.title, quantity: Number(variant.inventoryQuantity || 0), price: Number(variant.price || 0),
-    weight: Number(variant.inventoryItem?.measurement?.weight?.value || 0), weightUnit: variant.inventoryItem?.measurement?.weight?.unit || "",
-    packageLengthCm: Number(variant.packageLength?.value || 0), packageWidthCm: Number(variant.packageWidth?.value || 0), packageHeightCm: Number(variant.packageHeight?.value || 0),
-    available: Boolean(variant.availableForSale), inventoryItemId: variant.inventoryItem?.id,
-  }));
-  return { id: product.id, title: product.title, handle: product.handle, description: product.descriptionHtml, image: product.featuredImage?.url || "", price: variants[0]?.price || 0,
-    compareAtPrice: Number(product.variants?.nodes?.[0]?.compareAtPrice || 0) || null, currency: "CLP", available: variants.some((variant: any) => variant.available),
-    vendor: product.vendor, productType: product.productType, tags: product.tags, variants };
-}
-
-function orderNormalize(order: any) {
-  const fulfillment = order.fulfillments?.[0];
-  const customer = order.customer;
-  const items = (order.lineItems?.nodes || []).map((item: any) => {
-    const weight = item.weight ? { value: Number(item.weight.value || 0), unit: item.weight.unit || "" } : undefined;
-    return { productId: item.variant?.product?.id || "", title: item.variant?.product?.title || item.name || "", sku: item.sku || item.variant?.sku || "", quantity: Number(item.quantity || 0), price: Number(item.originalUnitPriceSet?.shopMoney?.amount || 0), weight };
-  });
-  const fulfillmentStatus = order.displayFulfillmentStatus || "UNFULFILLED";
-  const financialStatus = order.displayFinancialStatus || "PENDING";
-  const status = financialStatus === "PAID" ? (fulfillmentStatus === "FULFILLED" ? "Enviado" : "Pagado") : financialStatus === "REFUNDED" || financialStatus === "VOIDED" ? "Cancelado" : "Pendiente";
-  const totalWeightGrams = items.reduce((sum: number, item: any) => {
-    if (!item.weight) return sum;
-    const unit = item.weight.unit.toUpperCase();
-    const grams = unit === "KILOGRAMS" ? item.weight.value * 1000 : unit === "POUNDS" ? item.weight.value * 453.59237 : unit === "OUNCES" ? item.weight.value * 28.349523125 : item.weight.value;
-    return sum + grams * item.quantity;
-  }, 0);
-  return { id: order.name || order.id, shopifyId: order.id, date: order.createdAt, createdAt: order.createdAt, customer: customer?.displayName || "Cliente", email: customer?.defaultEmailAddress?.emailAddress || "", total: Number(order.totalPriceSet?.shopMoney?.amount || 0), status,
-    paymentStatus: financialStatus, fulfillmentStatus, fulfillmentId: fulfillment?.id, carrier: fulfillment?.trackingInfo?.[0]?.company || "", tracking: fulfillment?.trackingInfo?.[0]?.number || "", trackingUrl: fulfillment?.trackingInfo?.[0]?.url || "",
-    shippingAddress: order.shippingAddress ? { name: [order.shippingAddress.firstName, order.shippingAddress.lastName].filter(Boolean).join(" "), company: order.shippingAddress.company || "", address1: order.shippingAddress.address1 || "", address2: order.shippingAddress.address2 || "", city: order.shippingAddress.city || "", province: order.shippingAddress.province || "", provinceCode: order.shippingAddress.provinceCode || "", zip: order.shippingAddress.zip || "", country: order.shippingAddress.country || "", countryCode: order.shippingAddress.countryCode || "", phone: order.shippingAddress.phone || "" } : undefined,
-    totalWeightGrams, items };
-}
-
-function customerNormalize(customer: any) {
-  return { id: customer.id, name: customer.displayName || [customer.firstName, customer.lastName].filter(Boolean).join(" ") || "Sin nombre", email: customer.defaultEmailAddress?.emailAddress || "", phone: customer.defaultPhoneNumber || "", orders: Number(customer.numberOfOrders || 0), spent: Number(customer.amountSpent?.amount || 0), status: customer.state === "ENABLED" ? "Activo" : "Inactivo", createdAt: customer.createdAt, updatedAt: customer.updatedAt, lastOrder: customer.lastOrder ? { id: customer.lastOrder.id, name: customer.lastOrder.name, date: customer.lastOrder.createdAt, total: Number(customer.lastOrder.totalPriceSet?.shopMoney?.amount || 0) } : undefined };
-}
-
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  try {
-    if (req.method !== "GET") return json(res, 405, { error: "Método no permitido." });
-    await requireClerk(req);
-    const resource = String(req.query.resource || "products");
-    if (resource === "products") {
-      const data = await graphql(productsQuery);
-      const nodes = (data.products?.nodes || []).map(productNormalize);
-      return json(res, 200, { nodes, count: nodes.length, pageInfo: { hasNextPage: false, endCursor: null }, source: "shopify-standalone" });
-    }
-    if (resource === "orders") {
-      const data = await graphql(ordersQuery);
-      const nodes = (data.orders?.nodes || []).map(orderNormalize);
-      return json(res, 200, { nodes, count: nodes.length, source: "shopify-standalone" });
-    }
-    if (resource === "customers") {
-      const data = await graphql(customersQuery);
-      const nodes = (data.customers?.nodes || []).map(customerNormalize);
-      return json(res, 200, { nodes, count: nodes.length, source: "shopify-standalone" });
-    }
-    if (resource === "locations") {
-      const data = await graphql(locationsQuery);
-      return json(res, 200, { locations: data.locations?.nodes || [] });
-    }
-    return json(res, 400, { error: "Recurso no soportado." });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Error interno";
-    if (message === "UNAUTHORIZED") return json(res, 401, { error: "Sesión de Clerk inválida o expirada." });
-    console.error(error);
-    return json(res, 502, { error: "No fue posible consultar Shopify.", detail: message });
-  }
-}
+function productNormalize(product: any) { const variants = (product.variants?.nodes || []).map((variant: any) => ({ id: variant.id, sku: variant.sku || "", title: variant.title, quantity: Number(variant.inventoryQuantity || 0), price: Number(variant.price || 0), weight: Number(variant.inventoryItem?.measurement?.weight?.value || 0), weightUnit: variant.inventoryItem?.measurement?.weight?.unit || "", packageLengthCm: Number(variant.packageLength?.value || 0), packageWidthCm: Number(variant.packageWidth?.value || 0), packageHeightCm: Number(variant.packageHeight?.value || 0), available: Boolean(variant.availableForSale), inventoryItemId: variant.inventoryItem?.id })); return { id: product.id, title: product.title, handle: product.handle, description: product.descriptionHtml, image: product.featuredImage?.url || "", price: variants[0]?.price || 0, compareAtPrice: Number(product.variants?.nodes?.[0]?.compareAtPrice || 0) || null, currency: "CLP", available: variants.some((variant: any) => variant.available), vendor: product.vendor, productType: product.productType, tags: product.tags, variants }; }
+function orderNormalize(order: any) { const fulfillment = order.fulfillments?.[0]; const customer = order.customer; const items = (order.lineItems?.nodes || []).map((item: any) => ({ productId: item.variant?.product?.id || "", title: item.variant?.product?.title || item.name || "", sku: item.sku || item.variant?.sku || "", quantity: Number(item.quantity || 0), price: Number(item.originalUnitPriceSet?.shopMoney?.amount || 0), weight: item.weight ? { value: Number(item.weight.value || 0), unit: item.weight.unit || "" } : undefined })); const fulfillmentStatus = order.displayFulfillmentStatus || "UNFULFILLED"; const financialStatus = order.displayFinancialStatus || "PENDING"; const status = financialStatus === "PAID" ? (fulfillmentStatus === "FULFILLED" ? "Enviado" : "Pagado") : financialStatus === "REFUNDED" || financialStatus === "VOIDED" ? "Cancelado" : "Pendiente"; const totalWeightGrams = items.reduce((sum: number, item: any) => { if (!item.weight) return sum; const unit = item.weight.unit.toUpperCase(); const grams = unit === "KILOGRAMS" ? item.weight.value * 1000 : unit === "POUNDS" ? item.weight.value * 453.59237 : unit === "OUNCES" ? item.weight.value * 28.349523125 : item.weight.value; return sum + grams * item.quantity; }, 0); return { id: order.name || order.id, shopifyId: order.id, date: order.createdAt, createdAt: order.createdAt, customer: customer?.displayName || "Cliente", email: customer?.defaultEmailAddress?.emailAddress || "", total: Number(order.totalPriceSet?.shopMoney?.amount || 0), status, paymentStatus: financialStatus, fulfillmentStatus, fulfillmentId: fulfillment?.id, carrier: fulfillment?.trackingInfo?.[0]?.company || "", tracking: fulfillment?.trackingInfo?.[0]?.number || "", trackingUrl: fulfillment?.trackingInfo?.[0]?.url || "", shippingAddress: order.shippingAddress ? { name: [order.shippingAddress.firstName, order.shippingAddress.lastName].filter(Boolean).join(" "), company: order.shippingAddress.company || "", address1: order.shippingAddress.address1 || "", address2: order.shippingAddress.address2 || "", city: order.shippingAddress.city || "", province: order.shippingAddress.province || "", provinceCode: order.shippingAddress.provinceCode || "", zip: order.shippingAddress.zip || "", country: order.shippingAddress.country || "", countryCode: order.shippingAddress.countryCode || "", phone: order.shippingAddress.phone || "" } : undefined, totalWeightGrams, items }; }
+function customerNormalize(customer: any) { return { id: customer.id, name: customer.displayName || [customer.firstName, customer.lastName].filter(Boolean).join(" ") || "Sin nombre", email: customer.defaultEmailAddress?.emailAddress || "", phone: customer.defaultPhoneNumber?.phoneNumber || "", ordersCount: Number(customer.numberOfOrders || 0), totalSpent: Number(customer.amountSpent?.amount || 0), lastPurchase: customer.lastOrder?.createdAt || "Sin compras", status: customer.state === "ENABLED" ? "Activo" : "Inactivo" }; }
+export default async function handler(req: VercelRequest, res: VercelResponse) { try { if (req.method !== "GET") return json(res, 405, { error: "Método no permitido." }); await requireClerk(req); const resource = String(req.query.resource || "products"); if (resource === "products") { const data = await graphql(productsQuery); const nodes = (data.products?.nodes || []).map(productNormalize); return json(res, 200, { nodes, count: nodes.length, pageInfo: { hasNextPage: false, endCursor: null }, source: "shopify-standalone" }); } if (resource === "orders") { const data = await graphql(ordersQuery); const nodes = (data.orders?.nodes || []).map(orderNormalize); return json(res, 200, { nodes, count: nodes.length, source: "shopify-standalone" }); } if (resource === "customers") { const data = await graphql(customersQuery); const nodes = (data.customers?.nodes || []).map(customerNormalize); return json(res, 200, { nodes, count: nodes.length, source: "shopify-standalone" }); } if (resource === "locations") { const data = await graphql(locationsQuery); return json(res, 200, { locations: data.locations?.nodes || [] }); } return json(res, 400, { error: "Recurso no soportado." }); } catch (error) { const message = error instanceof Error ? error.message : "Error interno"; if (message === "UNAUTHORIZED") return json(res, 401, { error: "Sesión de Clerk inválida o expirada." }); console.error(error); return json(res, 502, { error: "No fue posible consultar Shopify.", detail: message }); } }
