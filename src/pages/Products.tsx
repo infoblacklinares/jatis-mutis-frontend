@@ -16,7 +16,7 @@ export function Products() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("todos");
   const [editing, setEditing] = useState<Editing>(null);
-  const [draft, setDraft] = useState({ title: "", sku: "", price: 0, weight: 0, weightUnit: "g" });
+  const [draft, setDraft] = useState({ title: "", sku: "", price: 0, weight: 0, weightUnit: "g", packageLengthCm: 0, packageWidthCm: 0, packageHeightCm: 0 });
   const [loading, setLoading] = useState(apiConfigured);
   const [saving, setSaving] = useState(false);
   const [apiError, setApiError] = useState("");
@@ -44,7 +44,7 @@ export function Products() {
     const product = products.find((item) => item.id === id); const variant = product?.variants[0]; if (!product || !variant) return;
     setSaving(true); setApiError("");
     try {
-      await updateProduct({ productId: product.id, variantId: variant.id, title: product.title, sku: variant.sku, price: variant.price, weight: variant.weight, weightUnit: variant.weightUnit || "g", available: !product.available });
+      await updateProduct({ productId: product.id, variantId: variant.id, title: product.title, sku: variant.sku, price: variant.price, weight: variant.weight, weightUnit: variant.weightUnit || "g", packageLengthCm: variant.packageLengthCm, packageWidthCm: variant.packageWidthCm, packageHeightCm: variant.packageHeightCm, available: !product.available });
       await refresh();
       logActivity(!product.available ? "Producto activado" : "Producto desactivado", product.title);
     } catch (error) { setApiError(error instanceof Error ? error.message : "No fue posible actualizar el producto."); }
@@ -55,7 +55,7 @@ export function Products() {
     if (!canManage) return;
     const variant = product.variants[0]; if (!variant) return;
     setEditing({ productId: product.id, variantId: variant.id });
-    setDraft({ title: product.title, sku: variant.sku, price: variant.price, weight: variant.weight, weightUnit: variant.weightUnit || "g" });
+    setDraft({ title: product.title, sku: variant.sku, price: variant.price, weight: variant.weight, weightUnit: variant.weightUnit || "g", packageLengthCm: variant.packageLengthCm, packageWidthCm: variant.packageWidthCm, packageHeightCm: variant.packageHeightCm });
   };
 
   const saveEdit = async () => {
@@ -63,7 +63,7 @@ export function Products() {
     const product = products.find((item) => item.id === editing.productId); if (!product) return;
     setSaving(true); setApiError("");
     try {
-      await updateProduct({ productId: editing.productId, variantId: editing.variantId, title: draft.title.trim() || product.title, sku: draft.sku.trim(), price: Math.max(0, Number(draft.price) || 0), weight: Math.max(0, Number(draft.weight) || 0), weightUnit: draft.weightUnit, available: product.available });
+      await updateProduct({ productId: editing.productId, variantId: editing.variantId, title: draft.title.trim() || product.title, sku: draft.sku.trim(), price: Math.max(0, Number(draft.price) || 0), weight: Math.max(0, Number(draft.weight) || 0), weightUnit: draft.weightUnit, packageLengthCm: Math.max(0, Number(draft.packageLengthCm) || 0), packageWidthCm: Math.max(0, Number(draft.packageWidthCm) || 0), packageHeightCm: Math.max(0, Number(draft.packageHeightCm) || 0), available: product.available });
       await refresh();
       logActivity("Producto editado", `${draft.title || product.title} · ${draft.sku || "sin SKU"}`);
       setEditing(null);
@@ -85,6 +85,6 @@ export function Products() {
     {apiError && <div className="inventory-error"><strong>No se pudo actualizar Shopify</strong><span>{apiError}</span></div>}
     <div className="toolbar"><input aria-label="Buscar productos" placeholder="Buscar por producto o SKU..." value={search} onChange={(e) => setSearch(e.target.value)} /><select aria-label="Filtrar por stock" value={status} onChange={(e) => setStatus(e.target.value)}><option value="todos">Todos</option><option value="disponible">Stock normal</option><option value="bajo">Stock bajo</option><option value="agotado">Agotados</option></select></div>
     <ProductTable products={filteredProducts} showWeight actions={canManage ? { onEdit: openEdit, onToggle: toggleProduct } : undefined} />
-    {editing && canManage && <div className="modal-backdrop"><div className="modal-card"><p className="eyebrow">Edición Shopify</p><h2>Editar producto</h2><label>Nombre<input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></label><label>SKU<input value={draft.sku} placeholder="SKU de variante" onChange={(e) => setDraft({ ...draft, sku: e.target.value })} /></label><label>Precio<input type="number" min="0" value={draft.price} onChange={(e) => setDraft({ ...draft, price: Number(e.target.value) })} /></label><label>Peso<input type="number" min="0" value={draft.weight} onChange={(e) => setDraft({ ...draft, weight: Number(e.target.value) })} /></label><label>Unidad<select value={draft.weightUnit} onChange={(e) => setDraft({ ...draft, weightUnit: e.target.value })}><option value="g">Gramos</option><option value="kg">Kilogramos</option></select></label><p className="muted">Los cambios se guardarán directamente en Shopify. El stock se gestiona desde Inventario.</p><div className="modal-actions"><button className="action-button" disabled={saving} onClick={() => setEditing(null)}>Cancelar</button><button className="primary-button" disabled={saving} onClick={saveEdit}>{saving ? "Guardando…" : "Guardar cambios"}</button></div></div></div>}
+    {editing && canManage && <div className="modal-backdrop"><div className="modal-card"><p className="eyebrow">Edición Shopify</p><h2>Editar producto</h2><label>Nombre<input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></label><label>SKU<input value={draft.sku} placeholder="SKU de variante" onChange={(e) => setDraft({ ...draft, sku: e.target.value })} /></label><label>Precio<input type="number" min="0" value={draft.price} onChange={(e) => setDraft({ ...draft, price: Number(e.target.value) })} /></label><label>Peso<input type="number" min="0" value={draft.weight} onChange={(e) => setDraft({ ...draft, weight: Number(e.target.value) })} /></label><label>Unidad<select value={draft.weightUnit} onChange={(e) => setDraft({ ...draft, weightUnit: e.target.value })}><option value="g">Gramos</option><option value="kg">Kilogramos</option></select></label><div className="product-package-fields"><strong>Medidas del paquete</strong><span>Se guardan en Shopify y luego se usarán para calcular el despacho.</span><div><label>Largo (cm)<input type="number" min="0" step="0.1" value={draft.packageLengthCm || ""} onChange={(e) => setDraft({ ...draft, packageLengthCm: Number(e.target.value) || 0 })} /></label><label>Ancho (cm)<input type="number" min="0" step="0.1" value={draft.packageWidthCm || ""} onChange={(e) => setDraft({ ...draft, packageWidthCm: Number(e.target.value) || 0 })} /></label><label>Alto (cm)<input type="number" min="0" step="0.1" value={draft.packageHeightCm || ""} onChange={(e) => setDraft({ ...draft, packageHeightCm: Number(e.target.value) || 0 })} /></label></div></div><p className="muted">Los cambios se guardarán directamente en Shopify. El stock se gestiona desde Inventario.</p><div className="modal-actions"><button className="action-button" disabled={saving} onClick={() => setEditing(null)}>Cancelar</button><button className="primary-button" disabled={saving} onClick={saveEdit}>{saving ? "Guardando…" : "Guardar cambios"}</button></div></div></div>}
   </section>;
 }
