@@ -24,9 +24,9 @@ export const saveOrders = (value: Order[]) => write(keys.orders, value);
 export const readCustomers = () => read<Customer[]>(keys.customers, initialCustomers);
 export const saveCustomers = (value: Customer[]) => write(keys.customers, value);
 export const readActivity = () => read<ActivityEvent[]>(keys.activity, []);
-export const logActivity = (action: string, detail: string) => {
+export const logActivity = (action: string, detail: string, user = "Usuario actual") => {
   const events = readActivity();
-  events.unshift({ id: crypto.randomUUID(), action, detail, date: new Date().toISOString(), user: "Usuario actual" });
+  events.unshift({ id: crypto.randomUUID(), action, detail, date: new Date().toISOString(), user });
   write(keys.activity, events.slice(0, 100));
 };
 export const readSettings = () => read<SettingsData>(keys.settings, { stockThreshold: 5, autoSync: false });
