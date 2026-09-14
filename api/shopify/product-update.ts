@@ -28,38 +28,83 @@ async function graphql(shop: string, token: string, query: string, variables: Re
   const errors = payload.errors?.map((error) => error.message || "Error GraphQL").join("; "); if (!response.ok || errors) throw new Error(`GRAPHQL_${response.status}:${errors || "sin detalle"}`); return payload.data;
 }
 
-const productMutation = `mutation ProductUpdate($input: ProductInput!) { productUpdate(input: $input) { product { id title status } userErrors { field message } } }`;
-const variantMutation = `mutation ProductVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) { productVariantsBulkUpdate(productId: $productId, variants: $variants) { productVariants { id price compareAtPrice } userErrors { field message } } }`;
-const inventoryMutation = `mutation InventoryItemUpdate($id: ID!, $input: InventoryItemInput!) { inventoryItemUpdate(id: $id, input: $input) { inventoryItem { id sku measurement { weight { value unit } } } userErrors { field message } } }`;
-const metafieldsMutation = `mutation MetafieldsSet($metafields: [MetafieldsSetInput!]!) { metafieldsSet(metafields: $metafields) { metafields { key namespace value } userErrors { field message code } } }`;
+const productMutation = `mutation ProductUpdate($product: ProductUpdateInput!) {
+  productUpdate(product: $product) {
+    product { id title status }
+    userErrors { field message }
+  }
+}`;
+
+const variantMutation = `mutation ProductVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+  productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+    productVariants { id price compareAtPrice }
+    userErrors { field message }
+  }
+}`;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (req.method !== "PATCH") return json(res, 405, { error: "Método no permitido." });
     const clientId = process.env.SHOPIFY_CLIENT_ID || ""; const secret = process.env.SHOPIFY_CLIENT_SECRET || "";
-    const idToken = String(req.headers["x-shopify-id-token"] || ""); if (!clientId || !secret) return json(res, 503, { error: "Shopify no está configurado en el servidor." }); if (!idToken) return json(res, 401, { error: "Falta la sesión de Shopify." });
-    const shop = verify(idToken, clientId, secret); const token = await exchange(shop, clientId, secret, idToken);
-    const body = req.body as { productId?: string; variantId?: string; title?: string; sku?: string; price?: number; weight?: number; weightUnit?: string; available?: boolean; packageLengthCm?: number; packageWidthCm?: number; packageHeightCm?: number };
+    const idToken = String(req.headers["x-shopify-id-token"] || "");
+    if (!clientId || !secret) return json(res, 503, { error: "Shopify no está configurado en el servidor." });
+    if (!idToken) return json(res, 401, { error: "Falta la sesión de Shopify." });
+
+    const shop = verify(idToken, clientId, secret);
+    const token = await exchange(shop, clientId, secret, idToken);
+    const body = req.body as {
+      productId?: string;
+      variantId?: string;
+      title?: string;
+      sku?: string;
+      price?: number;
+      weight?: number;
+      weightUnit?: string;
+      available?: boolean;
+      packageLengthCm?: number;
+      packageWidthCm?: number;
+      packageHeightCm?: number;
+    };
+
     if (!body.productId || !body.variantId) return json(res, 400, { error: "Faltan identificadores del producto o variante." });
+
     const weightUnit = body.weightUnit === "kg" ? "KILOGRAMS" : body.weightUnit === "g" ? "GRAMS" : body.weightUnit || "GRAMS";
-    const productData = await graphql(shop, token, productMutation, { input: { id: body.productId, title: body.title?.trim() || undefined, status: body.available === false ? "DRAFT" : "ACTIVE" } });
-    const productErrors = productData.productUpdate.userErrors || []; if (productErrors.length) return json(res, 400, { error: productErrors.map((e: any) => e.message).join("; ") });
-    const variantData = await graphql(shop, token, variantMutation, { productId: body.productId, variants: [{ id: body.variantId, price: String(Math.max(0, Number(body.price) || 0)) }] });
-    const variantErrors = variantData.productVariantsBulkUpdate.userErrors || []; if (variantErrors.length) return json(res, 400, { error: variantErrors.map((e: any) => e.message).join("; ") });
-    const productDataAfter = await graphql(shop, token, `query ProductInventoryItem($id: ID!) { product(id: $id) { variants(first: 100) { nodes { id inventoryItem { id } } } } }`, { id: body.productId });
-    const variant = productDataAfter.product?.variants?.nodes?.find((item: any) => item.id === body.variantId); const inventoryItemId = variant?.inventoryItem?.id;
-    if (!inventoryItemId) return json(res, 400, { error: "No se encontró el inventario de la variante." });
-    const inventoryData = await graphql(shop, token, inventoryMutation, { id: inventoryItemId, input: { sku: body.sku?.trim() || "", measurement: { weight: { value: Math.max(0, Number(body.weight) || 0), unit: weightUnit } } } });
-    const inventoryErrors = inventoryData.inventoryItemUpdate.userErrors || []; if (inventoryErrors.length) return json(res, 400, { error: inventoryErrors.map((e: any) => e.message).join("; ") });
     const dimensions = [
-      { key: "package_length_cm", value: Math.max(0, Number(body.packageLengthCm) || 0) },
-      { key: "package_width_cm", value: Math.max(0, Number(body.packageWidthCm) || 0) },
-      { key: "package_height_cm", value: Math.max(0, Number(body.packageHeightCm) || 0) },
+      { namespace: PACKAGE_NAMESPACE, key: "package_length_cm", type: "number_decimal", value: String(Math.max(0, Number(body.packageLengthCm) || 0)) },
+      { namespace: PACKAGE_NAMESPACE, key: "package_width_cm", type: "number_decimal", value: String(Math.max(0, Number(body.packageWidthCm) || 0)) },
+      { namespace: PACKAGE_NAMESPACE, key: "package_height_cm", type: "number_decimal", value: String(Math.max(0, Number(body.packageHeightCm) || 0)) },
     ];
-    const metafieldData = await graphql(shop, token, metafieldsMutation, { metafields: dimensions.map(({ key, value }) => ({ namespace: PACKAGE_NAMESPACE, key, ownerId: body.variantId, type: "number_decimal", value: String(value) })) });
-    const metafieldErrors = metafieldData.metafieldsSet.userErrors || []; if (metafieldErrors.length) return json(res, 400, { error: metafieldErrors.map((e: any) => e.message).join("; ") });
+
+    const productData = await graphql(shop, token, productMutation, {
+      product: {
+        id: body.productId,
+        title: body.title?.trim() || undefined,
+        status: body.available === false ? "DRAFT" : "ACTIVE",
+      },
+    });
+    const productErrors = productData.productUpdate.userErrors || [];
+    if (productErrors.length) return json(res, 400, { error: productErrors.map((e: any) => e.message).join("; ") });
+
+    const variantData = await graphql(shop, token, variantMutation, {
+      productId: body.productId,
+      variants: [{
+        id: body.variantId,
+        price: String(Math.max(0, Number(body.price) || 0)),
+        inventoryItem: {
+          sku: body.sku?.trim() || "",
+          measurement: { weight: { value: Math.max(0, Number(body.weight) || 0), unit: weightUnit } },
+        },
+        metafields: dimensions,
+      }],
+    });
+    const variantErrors = variantData.productVariantsBulkUpdate.userErrors || [];
+    if (variantErrors.length) return json(res, 400, { error: variantErrors.map((e: any) => e.message).join("; ") });
+
     return json(res, 200, { success: true });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Error interno"; if (message.startsWith("SHOPIFY_ID_TOKEN_")) return json(res, 401, { error: "Sesión de Shopify inválida o expirada.", detail: message, "X-Shopify-Retry-Invalid-Session-Request": "1" }); console.error(error); return json(res, 502, { error: "No fue posible actualizar el producto en Shopify.", detail: message });
+    const message = error instanceof Error ? error.message : "Error interno";
+    if (message.startsWith("SHOPIFY_ID_TOKEN_")) return json(res, 401, { error: "Sesión de Shopify inválida o expirada.", detail: message, "X-Shopify-Retry-Invalid-Session-Request": "1" });
+    console.error(error);
+    return json(res, 502, { error: "No fue posible actualizar el producto en Shopify.", detail: message });
   }
 }
