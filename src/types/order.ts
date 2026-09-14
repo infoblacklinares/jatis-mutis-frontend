@@ -17,5 +17,10 @@ export interface Order {
   status: OrderStatus;
   paymentStatus?: string;
   fulfillmentStatus?: string;
+  fulfillmentId?: string;
+  fulfillmentStatusDetail?: string;
+  carrier?: string;
+  tracking?: string;
+  trackingUrl?: string;
   items?: OrderItem[];
 }
