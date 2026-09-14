@@ -3,7 +3,7 @@ import type { Order } from "../types/order";
 import type { Customer } from "../types/customer";
 const API_URL = import.meta.env.VITE_API_URL?.replace(/\/$/, "") ?? "";
 const PRODUCTS_PATH = API_URL ? "/api/products" : "/api/shopify/products";
-const ORDERS_PATH = API_URL ? "/api/orders" : "/api/shopify/orders";
+const ORDERS_PATH = API_URL ? "/api/orders" : "/api/shopify/orders-v2";
 const CUSTOMERS_PATH = API_URL ? "/api/customers" : "/api/shopify/customers";
 export const apiConfigured = true;
 type ApiErrorBody = { error?: string; detail?: string };
