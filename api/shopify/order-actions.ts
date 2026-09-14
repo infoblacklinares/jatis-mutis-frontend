@@ -31,7 +31,7 @@ async function graphql(shop: string, token: string, query: string, variables: Re
 
 const fulfillmentOrdersQuery = `query FulfillmentOrders($id: ID!) { order(id: $id) { id displayFulfillmentStatus fulfillmentOrders(first: 50) { nodes { id status assignedLocation { location { id name } } lineItems(first: 250) { nodes { id remainingQuantity lineItem { name sku } } } } } } }`;
 const fulfillMutation = `mutation Fulfill($fulfillment: FulfillmentInput!) { fulfillmentCreate(fulfillment: $fulfillment) { fulfillment { id status displayStatus trackingInfo { company number url } } userErrors { field message } } }`;
-const cancelMutation = `mutation Cancel($id: ID!, $notifyCustomer: Boolean!, $restock: Boolean!, $reason: OrderCancelReason!, $staffNote: String) { orderCancel(orderId: $id, notifyCustomer: $notifyCustomer, restock: $restock, reason: $reason, staffNote: $staffNote) { job { id done } orderCancelUserErrors { field message code } } }`;
+const cancelMutation = `mutation Cancel($id: ID!, $notifyCustomer: Boolean, $refundMethod: OrderCancelRefundMethodInput!, $restock: Boolean!, $reason: OrderCancelReason!, $staffNote: String) { orderCancel(orderId: $id, notifyCustomer: $notifyCustomer, refundMethod: $refundMethod, restock: $restock, reason: $reason, staffNote: $staffNote) { job { id done } orderCancelUserErrors { field message code } userErrors { field message } } }`;
 
 async function fulfillOrder(shop: string, token: string, orderId: string, tracking?: { company?: string; number?: string; url?: string }, notifyCustomer = false) {
   const data = await graphql(shop, token, fulfillmentOrdersQuery, { id: orderId }) as { order?: { fulfillmentOrders?: { nodes: Array<{ id: string; status: string; lineItems: { nodes: Array<{ id: string; remainingQuantity: number }> } }> } } };
@@ -65,8 +65,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return json(res, 200, { success: true, action: "fulfill", fulfillment });
     }
     if (body.action === "cancel") {
-      const result = await graphql(shop, token, cancelMutation, { id: body.orderId, notifyCustomer: Boolean(body.notifyCustomer), restock: body.restock !== false, reason: "OTHER", staffNote: body.staffNote || "Cancelado desde Jatis Mutis" }) as { orderCancel?: { job?: { id: string; done: boolean }; orderCancelUserErrors?: Array<{ field?: string[]; message: string; code?: string }> } };
-      const errors = result.orderCancel?.orderCancelUserErrors || [];
+      const result = await graphql(shop, token, cancelMutation, { id: body.orderId, notifyCustomer: Boolean(body.notifyCustomer), refundMethod: { originalPaymentMethodsRefund: true }, restock: body.restock !== false, reason: "OTHER", staffNote: body.staffNote || "Cancelado desde Jatis Mutis" }) as { orderCancel?: { job?: { id: string; done: boolean }; orderCancelUserErrors?: Array<{ field?: string[]; message: string; code?: string }>; userErrors?: Array<{ field?: string[]; message: string }> } };
+      const errors = [...(result.orderCancel?.orderCancelUserErrors || []), ...(result.orderCancel?.userErrors || [])];
       if (errors.length) throw new Error(errors.map((error) => error.message).join("; "));
       return json(res, 200, { success: true, action: "cancel", job: result.orderCancel?.job });
     }
