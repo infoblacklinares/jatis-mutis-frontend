@@ -5,6 +5,7 @@ import { apiConfigured, getProducts, updateProduct } from "../services/api";
 import { readProducts, saveProducts, logActivity } from "../services/localStore";
 import { canPerform, getUserRole } from "../services/permissions";
 import type { Product } from "../types/product";
+import "../product-editor.css";
 
 type Editing = { productId: string; variantId: string } | null;
 
