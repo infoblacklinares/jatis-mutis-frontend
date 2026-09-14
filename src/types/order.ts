@@ -21,6 +21,7 @@ export interface OrderItem {
   quantity: number;
   price: number;
   weight?: { value: number; unit: string };
+  packageDimensionsCm?: { length: number; width: number; height: number };
 }
 
 export interface Order {
