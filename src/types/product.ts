@@ -6,6 +6,9 @@ export interface ProductVariant {
   price: number;
   weight: number;
   weightUnit: string;
+  packageLengthCm: number;
+  packageWidthCm: number;
+  packageHeightCm: number;
   available: boolean;
   inventoryItemId?: string;
 }
