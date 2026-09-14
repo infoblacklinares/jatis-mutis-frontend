@@ -18,7 +18,7 @@ function verify(token: string, clientId: string, secret: string) {
   if (issuer.hostname !== destination.hostname || issuer.pathname !== "/admin" || !destination.hostname.endsWith(".myshopify.com")) throw new Error("SHOPIFY_ID_TOKEN_SHOP_INVALID"); return destination.hostname;
 }
 async function exchange(shop: string, clientId: string, secret: string, idToken: string) {
-  const response = await fetch(`https://${shop}/admin/oauth/access_token`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:token-exchange", subject_token: idToken, subject_token_type: "urn:shopify:params:oauth:token-type:id_token", requested_token_type: "urn:shopify:params:oauth:token-type:online-access-token", client_id: clientId, client_secret: secret }).toString() });
+  const response = await fetch(`https://${shop}/admin/oauth/access_token`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:token-exchange", subject_token: idToken, subject_token_type: "urn:ietf:params:oauth:token-type:id_token", requested_token_type: "urn:shopify:params:oauth:token-type:online-access-token", client_id: clientId, client_secret: secret }).toString() });
   const payload = await response.json() as TokenResponse; if (!response.ok || !payload.access_token) throw new Error(`TOKEN_EXCHANGE_HTTP_${response.status}:${payload.error_description || payload.error || "sin detalle"}`); return payload.access_token;
 }
 async function graphql(shop: string, token: string, query: string, variables: Record<string, unknown>) {
@@ -43,7 +43,7 @@ async function fulfillOrder(shop: string, token: string, orderId: string, tracki
   const fulfillment: Record<string, unknown> = { lineItemsByFulfillmentOrder, notifyCustomer };
   const cleanTracking = Object.fromEntries(Object.entries(tracking || {}).filter(([, value]) => value));
   if (Object.keys(cleanTracking).length) fulfillment.trackingInfo = cleanTracking;
-  const result = await graphql(shop, token, fulfillMutation, { fulfillment }) as { fulfillmentCreate?: { fulfillment?: { id: string; status: string; displayStatus: string | null; trackingInfo: Array<{ company: string | null; number: string | null; url: string | null }> }; userErrors?: Array<{ field?: string[]; message: string }> } };
+  const result = await graphql(shop, token, fulfillMutation, { fulfillment }) as { fulfillmentCreate?: { fulfillment?: { id: string; status: string; displayStatus: string | null; trackingInfo: Array<{ company: string | null; number: string | null; url: string | null }> }; userErrors?: Array<{ field?: string[]; message: string }> };
   const errors = result.fulfillmentCreate?.userErrors || [];
   if (errors.length) throw new Error(errors.map((error) => error.message).join("; "));
   if (!result.fulfillmentCreate?.fulfillment) throw new Error("Shopify no creó el fulfillment.");
