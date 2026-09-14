@@ -16,6 +16,7 @@ export function Inventory() {
   const [editing, setEditing] = useState<{ productId: string; variantId: string } | null>(null);
   const [amount, setAmount] = useState(1);
   const [reason, setReason] = useState("Reposición");
+  const [movement, setMovement] = useState<"add" | "remove">("add");
   const [locationId, setLocationId] = useState("");
   const [syncError, setSyncError] = useState("");
 
@@ -40,10 +41,11 @@ export function Inventory() {
   const selectedProduct = editing ? products.find((p) => p.id === editing.productId) : undefined;
   const selected = selectedProduct?.variants.find((v) => v.id === editing?.variantId);
   const filteredProducts = useMemo(() => products.map((product) => ({ ...product, variants: product.variants.filter((variant) => filter === "todos" || (filter === "bajo" && variant.quantity > 0 && variant.quantity <= 5) || (filter === "agotado" && variant.quantity === 0) || (filter === "normal" && variant.quantity > 5)) })).filter((product) => product.variants.length > 0), [filter, products]);
-  const openAdjustment = (productId: string, variantId: string) => { if (!canAdjust) return; setEditing({ productId, variantId }); setAmount(1); setReason("Reposición"); setSyncError(""); };
+  const openAdjustment = (productId: string, variantId: string) => { if (!canAdjust) return; setEditing({ productId, variantId }); setAmount(1); setReason("Reposición"); setMovement("add"); setSyncError(""); };
 
-  const adjust = async (delta: number) => {
+  const adjust = async () => {
     if (!canAdjust || !editing || !selected || !selected.inventoryItemId || !locationId) return;
+    const delta = movement === "add" ? amount : -amount;
     try {
       const clerkToken = await getToken();
       if (!clerkToken) throw new Error("Sesión de usuario no disponible.");
@@ -58,6 +60,9 @@ export function Inventory() {
   };
 
   const actions = canAdjust ? { onToggle: (id: string) => { const p = products.find((x) => x.id === id); if (p?.variants.length) openAdjustment(p.id, p.variants[0].id); }, onEdit: (product: Product) => { if (product.variants.length) openAdjustment(product.id, product.variants[0].id); } } : undefined;
+  const nextStock = selected ? selected.quantity + (movement === "add" ? amount : -amount) : 0;
+  const canSubmit = Boolean(selected?.inventoryItemId && locationId && amount > 0 && (movement === "add" || amount <= (selected?.quantity ?? 0)));
+
   return <section className="panel full-panel">
     <div className="panel-header"><div><p className="eyebrow">Control de existencias</p><h2>Inventario</h2></div><span className="status warning">{lowStock} con stock bajo</span></div>
     {syncError && <div className="inventory-error"><strong>No se pudo completar la operación</strong><span>{syncError}</span></div>}
@@ -71,9 +76,10 @@ export function Inventory() {
         <label>Variante<select aria-label="Seleccionar variante" value={selected.id} onChange={(e) => setEditing({ productId: selectedProduct.id, variantId: e.target.value })}>{selectedProduct.variants.map((variant) => <option key={variant.id} value={variant.id}>{variant.title} · {variant.sku || "Sin SKU"}</option>)}</select></label>
         <label>Motivo<select value={reason} onChange={(e) => setReason(e.target.value)}><option>Reposición</option><option>Ajuste de inventario</option><option>Merma</option><option>Devolución</option><option>Venta manual</option></select></label>
       </div>
-      <div className="inventory-quantity"><div><span>Cantidad</span><small>Indica cuántas unidades quieres mover</small></div><input aria-label="Cantidad" type="number" min="1" value={amount} onChange={(e) => setAmount(Math.max(1, Number(e.target.value) || 1))} /></div>
-      <div className="inventory-preview"><div><span>Entrada</span><strong>+{amount}</strong></div><div><span>Salida</span><strong>-{amount}</strong></div><div><span>Después de entrada</span><strong>{selected.quantity + amount}</strong></div></div>
-      <div className="modal-actions"><button className="action-button" onClick={() => setEditing(null)}>Cancelar</button><button className="inventory-entry-button" disabled={!selected.inventoryItemId || !locationId} onClick={() => adjust(amount)}>＋ Entrada</button><button className="inventory-exit-button" disabled={!selected.inventoryItemId || !locationId || amount > selected.quantity} onClick={() => adjust(-amount)}>− Salida</button></div>
+      <div className="movement-choice"><span className="movement-label">¿Qué quieres hacer?</span><div className="movement-options"><button type="button" className={`movement-option add ${movement === "add" ? "selected" : ""}`} onClick={() => setMovement("add")}><strong>Agregar stock</strong><span>Sumar unidades al inventario</span></button><button type="button" className={`movement-option remove ${movement === "remove" ? "selected" : ""}`} onClick={() => setMovement("remove")}><strong>Reducir stock</strong><span>Restar unidades del inventario</span></button></div></div>
+      <div className="inventory-quantity"><div><span>Cantidad de unidades</span><small>¿Cuántas unidades quieres {movement === "add" ? "agregar" : "retirar"}?</small></div><input aria-label="Cantidad" type="number" min="1" max={movement === "remove" ? selected.quantity : undefined} value={amount} onChange={(e) => setAmount(Math.max(1, Number(e.target.value) || 1))} /></div>
+      <div className={`inventory-result ${movement}`}><div><span>Stock actual</span><strong>{selected.quantity}</strong></div><b>→</b><div><span>Nuevo stock</span><strong>{nextStock}</strong></div></div>
+      <div className="modal-actions"><button className="action-button" onClick={() => setEditing(null)}>Cancelar</button><button className={`inventory-confirm-button ${movement}`} disabled={!canSubmit} onClick={adjust}>{movement === "add" ? "Agregar " : "Retirar "}{amount} {amount === 1 ? "unidad" : "unidades"}</button></div>
     </div></div>}
   </section>;
 }
