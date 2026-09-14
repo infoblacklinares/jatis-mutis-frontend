@@ -98,25 +98,23 @@ export function Products() {
     <div className="toolbar"><input aria-label="Buscar productos" placeholder="Buscar por producto o SKU..." value={search} onChange={(e) => setSearch(e.target.value)} /><select aria-label="Filtrar por stock" value={status} onChange={(e) => setStatus(e.target.value)}><option value="todos">Todos</option><option value="disponible">Stock normal</option><option value="bajo">Stock bajo</option><option value="agotado">Agotados</option></select></div>
     <ProductTable products={filteredProducts} showWeight actions={canManage ? { onEdit: openEdit, onToggle: toggleProduct } : undefined} />
     {editing && canManage && <div className="modal-backdrop"><div className="modal-card product-editor-modal">
-      <p className="eyebrow">Edición Shopify</p>
-      <h2>Editar producto</h2>
+      <div className="product-editor-heading"><div><p className="eyebrow">Edición Shopify</p><h2>Editar producto</h2><span>Actualiza la información comercial y de despacho.</span></div><button type="button" className="modal-close" onClick={() => setEditing(null)} aria-label="Cerrar">×</button></div>
       <div className="product-editor-grid">
-        <label>Nombre<input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></label>
+        <label className="field-wide">Nombre<input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></label>
         <label>SKU<input value={draft.sku} placeholder="SKU de variante" onChange={(e) => setDraft({ ...draft, sku: e.target.value })} /></label>
         <label>Precio<input type="number" min="0" value={draft.price} onChange={(e) => setDraft({ ...draft, price: Number(e.target.value) })} /></label>
-        <label>Peso<input type="number" min="0" value={draft.weight} onChange={(e) => setDraft({ ...draft, weight: Number(e.target.value) })} /></label>
+        <label>Peso<input type="number" min="0" step="0.1" value={draft.weight} onChange={(e) => setDraft({ ...draft, weight: Number(e.target.value) })} /></label>
         <label>Unidad<select value={draft.weightUnit} onChange={(e) => setDraft({ ...draft, weightUnit: e.target.value })}><option value="g">Gramos</option><option value="kg">Kilogramos</option></select></label>
       </div>
       <div className="product-package-fields">
-        <strong>Medidas del paquete</strong>
-        <span>Se guardan en Shopify y luego se usarán para calcular el despacho.</span>
-        <div>
-          <label>Largo (cm)<input type="number" min="0" step="0.1" value={draft.packageLengthCm || ""} onChange={(e) => setDraft({ ...draft, packageLengthCm: Number(e.target.value) || 0 })} /></label>
-          <label>Ancho (cm)<input type="number" min="0" step="0.1" value={draft.packageWidthCm || ""} onChange={(e) => setDraft({ ...draft, packageWidthCm: Number(e.target.value) || 0 })} /></label>
-          <label>Alto (cm)<input type="number" min="0" step="0.1" value={draft.packageHeightCm || ""} onChange={(e) => setDraft({ ...draft, packageHeightCm: Number(e.target.value) || 0 })} /></label>
+        <div className="package-heading"><div><strong>Medidas del paquete</strong><span>Estas medidas se usarán para calcular el peso volumétrico del despacho.</span></div><span className="unit-badge">cm</span></div>
+        <div className="package-grid">
+          <label>Largo<input type="number" min="0" step="0.1" placeholder="0" value={draft.packageLengthCm || ""} onChange={(e) => setDraft({ ...draft, packageLengthCm: Number(e.target.value) || 0 })} /></label>
+          <label>Ancho<input type="number" min="0" step="0.1" placeholder="0" value={draft.packageWidthCm || ""} onChange={(e) => setDraft({ ...draft, packageWidthCm: Number(e.target.value) || 0 })} /></label>
+          <label>Alto<input type="number" min="0" step="0.1" placeholder="0" value={draft.packageHeightCm || ""} onChange={(e) => setDraft({ ...draft, packageHeightCm: Number(e.target.value) || 0 })} /></label>
         </div>
       </div>
-      <p className="muted">Los cambios se guardarán directamente en Shopify. El stock se gestiona desde Inventario.</p>
+      <div className="product-editor-note"><span>i</span><p>Los cambios se guardarán directamente en Shopify. El stock se gestiona desde <strong>Inventario</strong>.</p></div>
       <div className="modal-actions"><button className="action-button" disabled={saving} onClick={() => setEditing(null)}>Cancelar</button><button className="primary-button" disabled={saving} onClick={saveEdit}>{saving ? "Guardando…" : "Guardar cambios"}</button></div>
     </div></div>}
   </section>;
