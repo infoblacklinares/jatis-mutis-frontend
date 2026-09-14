@@ -1,19 +1,39 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { OrderTable } from "../components/OrderTable";
 import { ProductTable } from "../components/ProductTable";
 import { StatCard } from "../components/StatCard";
-import { apiConfigured } from "../services/api";
-import { readActivity, readCustomers, readOrders, readProducts, readSettings } from "../services/localStore";
+import { getCustomers, getOrders, getProducts, apiConfigured } from "../services/api";
+import { readActivity, readCustomers, readOrders, readProducts, readSettings, saveCustomers, saveOrders, saveProducts } from "../services/localStore";
+import type { Product } from "../types/product";
+import type { Order } from "../types/order";
+import type { Customer } from "../types/customer";
 
 const money = (value: number) => value.toLocaleString("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 });
 
 export function Dashboard() {
   const [period, setPeriod] = useState("30");
-  const products = readProducts();
-  const orders = readOrders();
-  const customers = readCustomers();
+  const [products, setProducts] = useState<Product[]>(readProducts());
+  const [orders, setOrders] = useState<Order[]>(readOrders());
+  const [customers, setCustomers] = useState<Customer[]>(readCustomers());
+  const [loading, setLoading] = useState(true);
+  const [syncError, setSyncError] = useState("");
   const activity = readActivity();
   const settings = readSettings();
+
+  useEffect(() => {
+    Promise.all([getProducts(), getOrders(), getCustomers()]).then(([productData, orderData, customerData]) => {
+      setProducts(productData.nodes);
+      setOrders(orderData.nodes);
+      setCustomers(customerData.nodes);
+      saveProducts(productData.nodes);
+      saveOrders(orderData.nodes);
+      saveCustomers(customerData.nodes);
+      setSyncError("");
+    }).catch((error) => {
+      setSyncError(error instanceof Error ? error.message : "No fue posible actualizar los datos.");
+    }).finally(() => setLoading(false));
+  }, []);
+
   const allVariants = products.flatMap((product) => product.variants);
   const totalUnits = allVariants.reduce((sum, variant) => sum + variant.quantity, 0);
   const lowStock = allVariants.filter((variant) => variant.quantity > 0 && variant.quantity <= settings.stockThreshold).length;
@@ -35,11 +55,12 @@ export function Dashboard() {
 
   return <>
     <div className="dashboard-search"><span>⌕</span><input aria-label="Buscar" placeholder="Buscar producto, pedido o cliente..." /><kbd>Ctrl K</kbd></div>
+    {syncError && <div className="notice warning">No se pudieron actualizar todos los datos desde Shopify: {syncError}</div>}
     <section className="stats-grid">
-      <StatCard label="Productos" value={String(products.length)} detail={`${allVariants.length} variantes`} />
-      <StatCard label="Stock bajo" value={String(lowStock)} detail={`${outOfStock} agotados`} />
-      <StatCard label="Pedidos" value={String(periodOrders.length)} detail={`Últimos ${period} días`} />
-      <StatCard label="Ventas" value={money(sales)} detail={`Últimos ${period} días`} />
+      <StatCard label="Productos" value={loading ? "…" : String(products.length)} detail={`${allVariants.length} variantes`} />
+      <StatCard label="Stock bajo" value={loading ? "…" : String(lowStock)} detail={`${outOfStock} agotados`} />
+      <StatCard label="Pedidos" value={loading ? "…" : String(periodOrders.length)} detail={`Últimos ${period} días`} />
+      <StatCard label="Ventas" value={loading ? "…" : money(sales)} detail={`Últimos ${period} días`} />
     </section>
     <div className="content-grid">
       <section className="panel chart-panel">
@@ -48,7 +69,7 @@ export function Dashboard() {
       </section>
       <section className="panel"><div className="panel-header"><div><p className="eyebrow">Actividad reciente</p><h2>Últimos pedidos</h2></div><span className="muted">{orders.length} registrados</span></div><OrderTable orders={recentOrders} /></section>
     </div>
-    <section className="panel full-panel"><div className="panel-header"><div><p className="eyebrow">Control de existencias</p><h2>Inventario</h2></div><span className="muted">{totalUnits} unidades</span></div><ProductTable products={products} /></section>
-    <section className="panel activity-panel"><div className="panel-header"><div><p className="eyebrow">Información</p><h2>Resumen operativo</h2></div></div><div className="info-grid"><div><span>Última sincronización</span><strong>{apiConfigured ? "Conectado a API" : "Pendiente de API"}</strong></div><div><span>Clientes</span><strong>{customers.length} registrados</strong></div><div><span>Productos con stock bajo</span><strong>{lowStock} variantes</strong></div><div><span>Actividad registrada</span><strong>{activity.length} eventos</strong></div></div></section>
+    <section className="panel full-panel"><div className="panel-header"><div><p className="eyebrow">Control de existencias</p><h2>Inventario</h2></div><span className="muted">{totalUnits.toLocaleString("es-CL")} unidades</span></div><ProductTable products={products} /></section>
+    <section className="panel activity-panel"><div className="panel-header"><div><p className="eyebrow">Información</p><h2>Resumen operativo</h2></div></div><div className="info-grid"><div><span>Conexión</span><strong>{apiConfigured && !syncError ? "Shopify conectado" : "Revisar conexión"}</strong></div><div><span>Clientes</span><strong>{customers.length.toLocaleString("es-CL")} registrados</strong></div><div><span>Productos con stock bajo</span><strong>{lowStock} variantes</strong></div><div><span>Actividad registrada</span><strong>{activity.length} eventos</strong></div></div></section>
   </>;
 }
