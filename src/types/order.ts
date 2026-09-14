@@ -10,6 +10,7 @@ export interface OrderItem {
 
 export interface Order {
   id: string;
+  shopifyId?: string;
   date: string;
   customer: string;
   email?: string;
