@@ -27,6 +27,7 @@ export function Dispatches() {
   const canManage = canPerform(getUserRole(user), "dispatches.manage");
   const [orders, setOrders] = useState<Order[]>(readOrders());
   const [status, setStatus] = useState("Todos");
+  const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -50,9 +51,18 @@ export function Dispatches() {
   }, []);
 
   const dispatches = useMemo(() => orders.map((order) => ({ order, status: dispatchStatus(order) })).filter((item): item is { order: Order; status: DispatchStatus } => item.status !== null), [orders]);
-  const filtered = dispatches.filter((item) => status === "Todos" || item.status === status);
+  const filtered = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return dispatches.filter((item) => {
+      const matchesStatus = status === "Todos" || item.status === status;
+      if (!term) return matchesStatus;
+      const haystack = [item.order.id, item.order.customer, item.order.email, item.order.shippingAddress?.city, item.order.carrier, item.order.tracking].filter(Boolean).join(" ").toLowerCase();
+      return matchesStatus && haystack.includes(term);
+    });
+  }, [dispatches, search, status]);
   const pending = dispatches.filter((item) => item.status === "Pendiente" || item.status === "Preparando").length;
   const shipped = dispatches.filter((item) => item.status === "Enviado" || item.status === "Entregado").length;
+  const withoutWeight = dispatches.filter(({ order }) => !order.totalWeightGrams).length;
   const volumetricWeightGrams = length > 0 && width > 0 && height > 0 ? (length * width * height / 4000) * 1000 : 0;
   const realWeightGrams = selected?.totalWeightGrams || 0;
   const chargeableWeightGrams = Math.max(realWeightGrams, volumetricWeightGrams);
@@ -83,8 +93,10 @@ export function Dispatches() {
 
   return <section className="panel full-panel">
     <div className="panel-header"><div><p className="eyebrow">Logística</p><h2>Despachos</h2></div><span className="muted">{pending} pendientes · {shipped} enviados/entregados · Shopify</span></div>
-    {error && <div className="notice warning">{error}</div>}
-    <div className="toolbar"><select aria-label="Filtrar despachos" value={status} onChange={(e) => setStatus(e.target.value)}><option>Todos</option>{statuses.map((s) => <option key={s}>{s}</option>)}</select></div>
+    {error && <div className={`notice ${error.includes("actualizado") ? "success" : "warning"}`}>{error}</div>}
+    <div className="dispatch-metrics"><div><span>Pendientes</span><strong>{pending}</strong><small>Por preparar o gestionar</small></div><div><span>Enviados</span><strong>{shipped}</strong><small>Con fulfillment completado</small></div><div><span>Sin peso</span><strong>{withoutWeight}</strong><small>Requieren completar datos</small></div></div>
+    <div className="dispatch-toolbar"><div className="dispatch-search"><span aria-hidden="true">⌕</span><input aria-label="Buscar despachos" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar pedido, cliente, ciudad o tracking..." /></div><select aria-label="Filtrar despachos" value={status} onChange={(e) => setStatus(e.target.value)}><option>Todos</option>{statuses.map((s) => <option key={s}>{s}</option>)}</select></div>
+    <div className="dispatch-results"><span>{filtered.length} despacho{filtered.length === 1 ? "" : "s"}</span>{search && <button type="button" onClick={() => setSearch("")}>Limpiar búsqueda</button>}</div>
     <div className="table-wrap"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Destino</th><th>Peso</th><th>Transportista</th><th>Seguimiento</th><th>Estado</th><th>Acción</th></tr></thead><tbody>
       {loading ? <tr><td colSpan={8} className="muted">Cargando despachos desde Shopify...</td></tr> : filtered.length === 0 ? <tr><td colSpan={8} className="muted">No hay despachos para este filtro.</td></tr> : filtered.map(({ order, status: itemStatus }) => <tr key={order.id}>
         <td><strong>{order.id}</strong></td><td>{order.customer}</td><td>{order.shippingAddress?.city || "Sin destino"}</td><td>{formatWeight(order.totalWeightGrams)}</td><td>{order.carrier || "Sin transportista"}</td><td className="muted dispatch-table-tracking">{order.tracking ? (order.trackingUrl ? <a href={order.trackingUrl} target="_blank" rel="noreferrer">{order.tracking}</a> : order.tracking) : "Sin tracking"}</td><td><span className={`status ${itemStatus === "Enviado" || itemStatus === "Entregado" ? "ok" : "warning"}`}>{itemStatus}</span></td><td><button className="action-button" onClick={() => openDispatch(order)}>Gestionar</button></td>
