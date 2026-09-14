@@ -40,14 +40,14 @@ export function Inventory() {
   const selectedProduct = editing ? products.find((p) => p.id === editing.productId) : undefined;
   const selected = selectedProduct?.variants.find((v) => v.id === editing?.variantId);
   const filteredProducts = useMemo(() => products.map((product) => ({ ...product, variants: product.variants.filter((variant) => filter === "todos" || (filter === "bajo" && variant.quantity > 0 && variant.quantity <= 5) || (filter === "agotado" && variant.quantity === 0) || (filter === "normal" && variant.quantity > 5)) })).filter((product) => product.variants.length > 0), [filter, products]);
-  const openAdjustment = (productId: string, variantId: string) => { if (!canAdjust) return; setEditing({ productId, variantId }); setAmount(1); setReason("Reposición"); };
+  const openAdjustment = (productId: string, variantId: string) => { if (!canAdjust) return; setEditing({ productId, variantId }); setAmount(1); setReason("Reposición"); setSyncError(""); };
 
   const adjust = async (delta: number) => {
     if (!canAdjust || !editing || !selected || !selected.inventoryItemId || !locationId) return;
     try {
       const clerkToken = await getToken();
       if (!clerkToken) throw new Error("Sesión de usuario no disponible.");
-      await adjustInventory({ inventoryItemId: selected.inventoryItemId, locationId, delta, reason: reason === "Reposición" ? "received" : reason === "Merma" ? "damaged" : reason === "Devolución" ? "returned" : reason === "Venta manual" ? "sale" : "correction" }, clerkToken);
+      await adjustInventory({ inventoryItemId: selected.inventoryItemId, locationId, delta, currentQuantity: selected.quantity, reason: reason === "Reposición" ? "received" : reason === "Merma" ? "damaged" : reason === "Devolución" ? "returned" : reason === "Venta manual" ? "sale" : "correction" }, clerkToken);
       const refreshed = await getProducts();
       setProducts(refreshed.nodes); saveProducts(refreshed.nodes);
       logActivity(delta > 0 ? "Entrada de inventario" : "Salida de inventario", `${selected.sku || selected.title}: ${Math.abs(delta)} unidad(es) · ${reason}`);
@@ -60,10 +60,20 @@ export function Inventory() {
   const actions = canAdjust ? { onToggle: (id: string) => { const p = products.find((x) => x.id === id); if (p?.variants.length) openAdjustment(p.id, p.variants[0].id); }, onEdit: (product: Product) => { if (product.variants.length) openAdjustment(product.id, product.variants[0].id); } } : undefined;
   return <section className="panel full-panel">
     <div className="panel-header"><div><p className="eyebrow">Control de existencias</p><h2>Inventario</h2></div><span className="status warning">{lowStock} con stock bajo</span></div>
-    {syncError && <div className="status error">{syncError}</div>}
+    {syncError && <div className="inventory-error"><strong>No se pudo completar la operación</strong><span>{syncError}</span></div>}
     <div className="stats-grid compact-stats"><div className="stat-card"><span>Unidades</span><strong>{totalUnits}</strong><small>Stock total · Shopify</small></div><div className="stat-card"><span>Stock bajo</span><strong>{lowStock}</strong><small>Requieren atención</small></div><div className="stat-card"><span>Agotados</span><strong>{outOfStock}</strong><small>Sin existencias</small></div></div>
     <div className="toolbar"><select aria-label="Filtrar inventario" value={filter} onChange={(e) => setFilter(e.target.value)}><option value="todos">Todo el inventario</option><option value="normal">Stock normal</option><option value="bajo">Stock bajo</option><option value="agotado">Agotados</option></select></div>
     <ProductTable products={filteredProducts} showWeight actions={actions} />
-    {editing && selectedProduct && selected && <div className="modal-backdrop"><div className="modal-card"><p className="eyebrow">Movimiento de inventario</p><h2>{selectedProduct.title}</h2><label>Variante<select aria-label="Seleccionar variante" value={selected.id} onChange={(e) => setEditing({ productId: selectedProduct.id, variantId: e.target.value })}>{selectedProduct.variants.map((variant) => <option key={variant.id} value={variant.id}>{variant.title} · {variant.sku || "Sin SKU"} · {variant.quantity} un.</option>)}</select></label><p className="muted">SKU: {selected.sku || "—"} · Stock actual: <strong>{selected.quantity}</strong></p><label>Motivo<select value={reason} onChange={(e) => setReason(e.target.value)}><option>Reposición</option><option>Ajuste de inventario</option><option>Merma</option><option>Devolución</option><option>Venta manual</option></select></label><label>Cantidad<input type="number" min="1" value={amount} onChange={(e) => setAmount(Math.max(1, Number(e.target.value) || 1))} /></label><div className="modal-actions"><button className="action-button" onClick={() => setEditing(null)}>Cancelar</button><button className="action-button" disabled={!selected.inventoryItemId || !locationId} onClick={() => adjust(amount)}>+ {amount} entrada</button><button className="primary-button" disabled={!selected.inventoryItemId || !locationId} onClick={() => adjust(-amount)}>- {amount} salida</button></div></div></div>}
+    {editing && selectedProduct && selected && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="inventory-modal-title"><div className="modal-card inventory-modal">
+      <div className="inventory-modal-head"><div><p className="eyebrow">Control de existencias</p><h2 id="inventory-modal-title">Ajustar stock</h2><p className="inventory-product-name">{selectedProduct.title}</p></div><button className="modal-close" onClick={() => setEditing(null)} aria-label="Cerrar">×</button></div>
+      <div className="inventory-current"><span>Stock actual</span><strong>{selected.quantity}</strong><small>unidades disponibles en Shopify</small></div>
+      <div className="inventory-form-grid">
+        <label>Variante<select aria-label="Seleccionar variante" value={selected.id} onChange={(e) => setEditing({ productId: selectedProduct.id, variantId: e.target.value })}>{selectedProduct.variants.map((variant) => <option key={variant.id} value={variant.id}>{variant.title} · {variant.sku || "Sin SKU"}</option>)}</select></label>
+        <label>Motivo<select value={reason} onChange={(e) => setReason(e.target.value)}><option>Reposición</option><option>Ajuste de inventario</option><option>Merma</option><option>Devolución</option><option>Venta manual</option></select></label>
+      </div>
+      <div className="inventory-quantity"><div><span>Cantidad</span><small>Indica cuántas unidades quieres mover</small></div><input aria-label="Cantidad" type="number" min="1" value={amount} onChange={(e) => setAmount(Math.max(1, Number(e.target.value) || 1))} /></div>
+      <div className="inventory-preview"><div><span>Entrada</span><strong>+{amount}</strong></div><div><span>Salida</span><strong>-{amount}</strong></div><div><span>Después de entrada</span><strong>{selected.quantity + amount}</strong></div></div>
+      <div className="modal-actions"><button className="action-button" onClick={() => setEditing(null)}>Cancelar</button><button className="inventory-entry-button" disabled={!selected.inventoryItemId || !locationId} onClick={() => adjust(amount)}>＋ Entrada</button><button className="inventory-exit-button" disabled={!selected.inventoryItemId || !locationId || amount > selected.quantity} onClick={() => adjust(-amount)}>− Salida</button></div>
+    </div></div>}
   </section>;
 }
