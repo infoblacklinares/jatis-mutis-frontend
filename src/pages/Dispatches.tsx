@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useUser } from "@clerk/clerk-react";
 import { getOrders, updateOrder } from "../services/api";
 import type { Order } from "../types/order";
 import { readOrders, saveOrders, logActivity } from "../services/localStore";
