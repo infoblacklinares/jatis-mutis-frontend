@@ -13,21 +13,36 @@ type ApiErrorBody = { error?: string; detail?: string };
 
 declare global {
   interface Window {
+    shopify?: {
+      idToken?: () => Promise<string>;
+      scopes?: {
+        query: () => Promise<{ granted: string[]; optional?: string[]; required?: string[] }>;
+        request: (scopes: string[]) => Promise<{ result?: string; detail?: { granted?: string[] } }>;
+      };
+    };
     Clerk?: { session?: { getToken?: () => Promise<string | null> } };
   }
+}
+
+async function ensureShopifyScopes() {
+  const scopesApi = window.shopify?.scopes;
+  if (!scopesApi) return;
+  const current = await scopesApi.query();
+  const requiredScopes = ["read_products", "read_inventory", "read_locations", "read_orders", "read_customers"];
+  const missing = requiredScopes.filter((scope) => !current.granted.includes(scope));
+  if (missing.length) await scopesApi.request(missing);
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set("Content-Type", "application/json");
 
-  if (window.Clerk?.session?.getToken) {
+  if (!window.shopify && window.Clerk?.session?.getToken) {
     const clerkToken = await window.Clerk.session.getToken();
     if (clerkToken) headers.set("Authorization", `Bearer ${clerkToken}`);
   }
 
   const response = await fetch(`${API_URL}${path}`, { ...init, headers });
-
   if (!response.ok) {
     let detail = "";
     try {
@@ -36,7 +51,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {}
     throw new Error(detail || `API ${response.status}: ${response.statusText}`);
   }
-
   return response.json() as Promise<T>;
 }
 
@@ -79,19 +93,28 @@ export async function getHealth(): Promise<{ status: string }> {
   return request<{ status: string }>("/health");
 }
 
-// Mutations remain temporarily isolated until their API v1 contracts are available.
 export async function adjustInventory(input: { inventoryItemId: string; locationId: string; delta: number; currentQuantity: number; reason: string }, clerkToken: string) {
-  throw new Error("El ajuste de inventario se habilitará cuando la API v1 de inventario esté disponible.");
+  const shopifyToken = window.shopify?.idToken ? await window.shopify.idToken() : "";
+  if (!shopifyToken) throw new Error("Los ajustes de inventario desde fuera de Shopify todavía no están habilitados. Puedes consultar el inventario desde la app web.");
+  return request<{ success: boolean; adjustment: unknown }>("/api/shopify/inventory", { method: "POST", headers: { "X-Shopify-ID-Token": shopifyToken, "X-Clerk-Token": clerkToken }, body: JSON.stringify(input) });
 }
 
 export async function getLocations() {
-  throw new Error("Las ubicaciones se habilitarán cuando la API v1 de inventario esté disponible.");
+  await ensureShopifyScopes();
+  if (!window.shopify) return request<{ locations: Array<{ id: string; name: string; isActive: boolean }> }>("/api/shopify/standalone?resource=locations");
+  const shopifyToken = window.shopify?.idToken ? await window.shopify.idToken() : "";
+  if (!shopifyToken) throw new Error("Falta la sesión de Shopify.");
+  return request<{ locations: Array<{ id: string; name: string; isActive: boolean }> }>("/api/shopify/locations", { headers: { "X-Shopify-ID-Token": shopifyToken } });
 }
 
 export async function updateProduct(input: { productId: string; variantId: string; title: string; sku: string; price: number; weight: number; weightUnit: string; packageLengthCm: number; packageWidthCm: number; packageHeightCm: number; available: boolean }) {
-  throw new Error("La edición de productos se habilitará cuando exista el contrato API v1 correspondiente.");
+  const shopifyToken = window.shopify?.idToken ? await window.shopify.idToken() : "";
+  if (!shopifyToken) throw new Error("La edición de productos desde fuera de Shopify todavía no está habilitada. Puedes consultar el catálogo desde la app web.");
+  return request<{ success: boolean }>("/api/shopify/product-update", { method: "PATCH", headers: { "X-Shopify-ID-Token": shopifyToken }, body: JSON.stringify(input) });
 }
 
 export async function updateOrder(input: { orderId: string; action: "fulfill" | "cancel"; tracking?: { company?: string; number?: string; url?: string }; notifyCustomer?: boolean; restock?: boolean; staffNote?: string }) {
-  throw new Error("Las acciones de pedidos se habilitarán cuando exista el contrato API v1 correspondiente.");
+  const shopifyToken = window.shopify?.idToken ? await window.shopify.idToken() : "";
+  if (!shopifyToken) throw new Error("Las acciones de pedidos desde fuera de Shopify todavía no están habilitadas. Puedes consultar los pedidos desde la app web.");
+  return request<{ success: boolean; action: string; fulfillment?: unknown; job?: unknown }>("/api/shopify/order-actions", { method: "POST", headers: { "X-Shopify-ID-Token": shopifyToken }, body: JSON.stringify(input) });
 }
