@@ -1,6 +1,6 @@
 export interface ProductVariant {
   id: string;
-  sku: string;
+  sku: string | null;
   title: string;
   quantity: number;
   price: number;
