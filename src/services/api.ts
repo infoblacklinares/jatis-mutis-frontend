@@ -3,9 +3,10 @@ import type { Order } from "../types/order";
 import type { Customer } from "../types/customer";
 
 const API_URL = import.meta.env.VITE_API_URL?.replace(/\/$/, "") ?? "";
+const STANDALONE = typeof window !== "undefined" && !window.shopify;
 const PRODUCTS_PATH = "/api/v1/products";
-const ORDERS_PATH = "/api/v1/orders";
-const CUSTOMERS_PATH = "/api/v1/customers";
+const ORDERS_PATH = STANDALONE ? "/api/shopify/standalone?resource=orders" : API_URL ? "/api/orders" : "/api/shopify/orders-v2";
+const CUSTOMERS_PATH = STANDALONE ? "/api/shopify/standalone?resource=customers" : API_URL ? "/api/customers" : "/api/shopify/customers";
 
 export const apiConfigured = true;
 
